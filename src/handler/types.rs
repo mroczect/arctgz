@@ -9,14 +9,21 @@ pub struct ArctgzConfig {
     pub name: String,
     pub version: String,
     pub include: Vec<String>,
+    #[serde(default = "default_compression")]
+    pub compression: Compression,
+}
+
+fn default_compression() -> Compression {
+    Compression::Gzip
 }
 
 impl Default for ArctgzConfig {
     fn default() -> Self {
         Self {
-            name: "untitled".to_string(),
-            version: "0.1.0".to_string(),
+            name: "untitled".into(),
+            version: "0.1.0".into(),
             include: vec![],
+            compression: Compression::Gzip,
         }
     }
 }
@@ -85,6 +92,8 @@ pub struct ArctgzManifest {
     pub name: String,
     pub version: String,
     pub created: DateTime<Utc>,
+    #[serde(default)]
+    pub compression: Compression,
     pub files: std::collections::BTreeMap<String, FileEntry>,
 }
 
@@ -113,4 +122,13 @@ pub enum RecipeStep {
     Chmod { path: String, mode: String },
     #[serde(rename = "remove")]
     Remove { path: String },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
+pub enum Compression {
+    #[serde(rename = "gzip")]
+    #[default]
+    Gzip,
+    #[serde(rename = "zstd")]
+    Zstd,
 }
