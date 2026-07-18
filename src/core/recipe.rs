@@ -1,6 +1,7 @@
 use crate::handler::{ArctgzError, ArctgzRecipe, RecipeStep};
 use std::fs;
 use std::io::Read;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path};
 
@@ -32,38 +33,6 @@ pub fn extract_recipe(archive_path: &Path) -> Result<ArctgzRecipe, ArctgzError> 
         }
     }
     Err(ArctgzError::RecipeNotFound)
-}
-
-fn validate_recipe(recipe: &ArctgzRecipe) -> Result<(), ArctgzError> {
-    for (i, step) in recipe.steps.iter().enumerate() {
-        match step {
-            RecipeStep::Copy { from, to } => {
-                validate_safe_path(from)?;
-                validate_safe_path(to)?;
-            }
-            RecipeStep::MkDir { path } => {
-                validate_safe_path(path)?;
-            }
-            RecipeStep::Chmod { path, mode } => {
-                validate_safe_path(path)?;
-                u32::from_str_radix(mode, 8).map_err(|_| {
-                    ArctgzError::RecipeInvalid(format!("step {}: invalid mode '{}'", i + 1, mode))
-                })?;
-            }
-            RecipeStep::Remove { path } => {
-                validate_safe_path(path)?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn validate_safe_path(path: &str) -> Result<(), ArctgzError> {
-    let p = Path::new(path);
-    if p.is_absolute() || p.components().any(|c| c == Component::ParentDir) {
-        return Err(ArctgzError::RecipeInvalid(format!("unsafe path: {}", path)));
-    }
-    Ok(())
 }
 
 pub fn execute_recipe(
@@ -104,13 +73,20 @@ pub fn execute_recipe(
                 fs::create_dir_all(&dir)?;
             }
             RecipeStep::Chmod { path, mode } => {
-                let target = output_dir.join(path);
-                let mode = u32::from_str_radix(mode, 8).map_err(|_| {
-                    ArctgzError::RecipeExecutionError(format!("invalid mode: {}", mode))
-                })?;
-                let mut perms = fs::metadata(&target)?.permissions();
-                perms.set_mode(mode);
-                fs::set_permissions(&target, perms)?;
+                #[cfg(not(unix))]
+                return Err(ArctgzError::RecipeExecutionError(
+                    "chmod is not supported on this platform".into(),
+                ));
+                #[cfg(unix)]
+                {
+                    let target = output_dir.join(path);
+                    let mode = u32::from_str_radix(mode, 8).map_err(|_| {
+                        ArctgzError::RecipeExecutionError(format!("invalid mode: {}", mode))
+                    })?;
+                    let mut perms = fs::metadata(&target)?.permissions();
+                    perms.set_mode(mode);
+                    fs::set_permissions(&target, perms)?;
+                }
             }
             RecipeStep::Remove { path } => {
                 let target = output_dir.join(path);
@@ -127,6 +103,45 @@ pub fn execute_recipe(
                 }
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_recipe(recipe: &ArctgzRecipe) -> Result<(), ArctgzError> {
+    for (i, step) in recipe.steps.iter().enumerate() {
+        match step {
+            RecipeStep::Copy { from, to } => {
+                validate_safe_path(from)?;
+                validate_safe_path(to)?;
+            }
+            RecipeStep::MkDir { path } => {
+                validate_safe_path(path)?;
+            }
+            RecipeStep::Chmod { path, mode } => {
+                validate_safe_path(path)?;
+                u32::from_str_radix(mode, 8).map_err(|_| {
+                    ArctgzError::RecipeInvalid(format!("step {}: invalid mode '{}'", i + 1, mode))
+                })?;
+            }
+            RecipeStep::Remove { path } => {
+                validate_safe_path(path)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_safe_path(path: &str) -> Result<(), ArctgzError> {
+    if path.is_empty() || path == "." {
+        return Err(ArctgzError::RecipeInvalid(format!(
+            "unsafe path (points to base directory): '{}'",
+            path
+        )));
+    }
+
+    let p = Path::new(path);
+    if p.is_absolute() || p.components().any(|c| c == Component::ParentDir) {
+        return Err(ArctgzError::RecipeInvalid(format!("unsafe path: {}", path)));
     }
     Ok(())
 }
