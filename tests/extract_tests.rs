@@ -27,7 +27,48 @@ fn extract_restores_files() {
 }
 
 #[test]
-fn extract_detects_checksum_mismatch() {}
+fn extract_detects_checksum_mismatch() {
+    with_temp_home(|home| {
+        let project = home.join("mismatch_test");
+        fs::create_dir_all(&project).unwrap();
+        let archive_path = project.join("bad_checksum.artgz");
+
+        let file = fs::File::create(&archive_path).unwrap();
+        let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        let mut tar = tar::Builder::new(enc);
+
+        let mut header = tar::Header::new_gnu();
+        header.set_size(6);
+        header.set_path("real.txt").unwrap();
+        tar.append_data(&mut header, "real.txt", b"secret".as_ref())
+            .unwrap();
+
+        let manifest = serde_json::json!({
+            "name": "test",
+            "version": "0.1.0",
+            "created": chrono::Utc::now().to_rfc3339(),
+            "files": {
+                "real.txt": {
+                    "size": 6,
+                    "sha512": "b3a8e0e1f9ab1bfe3a36f231f676f78bb30a519d2b21e6c530c0eee8ebb4a5d0"
+                }
+            }
+        });
+        let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+        let mut manifest_header = tar::Header::new_gnu();
+        manifest_header.set_size(manifest_bytes.len() as u64);
+        manifest_header.set_path("manifest.json").unwrap();
+        tar.append_data(&mut manifest_header, "manifest.json", &manifest_bytes[..])
+            .unwrap();
+
+        let enc = tar.into_inner().unwrap();
+        enc.finish().unwrap();
+
+        let out_dir = home.join("out");
+        let res = extract(&archive_path, &out_dir, false);
+        assert!(matches!(res, Err(ArctgzError::ChecksumMismatch(_, _, _))));
+    });
+}
 
 #[test]
 fn extract_no_manifest_errors() {
