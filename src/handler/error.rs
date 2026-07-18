@@ -31,4 +31,18 @@ pub enum ArctgzError {
 
     #[error("Failed to save configuration: {0}")]
     ConfigSaveError(String),
+
+    #[error("Symlink not allowed: {0}")]
+    SymlinkNotAllowed(String),
+
+    #[error("Include file not found: {0}")]
+    IncludeFileNotFound(String),
+    #[error("Manifest not found in archive")]
+    ManifestNotFound,
+
+    #[error("Checksum mismatch for file {0}: expected {1}, got {2}")]
+    ChecksumMismatch(String, String, String),
+
+    #[error("Extract error: {0}")]
+    ExtractError(String),
 }
