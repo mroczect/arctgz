@@ -21,7 +21,8 @@ fn init_creates_include_and_config() {
         let expected = serde_json::json!({
             "name": "untitled",
             "version": "0.1.0",
-            "include": []
+            "include": [],
+            "compression": "gzip"
         });
         let actual: serde_json::Value = serde_json::from_str(&content).unwrap();
         assert_eq!(actual, expected);
