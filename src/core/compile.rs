@@ -1,8 +1,8 @@
 use crate::handler::{ArctgzError, ArctgzManifest, FileEntry};
 use chrono::Utc;
 use sha2::{Digest, Sha512};
+use std::collections::BTreeMap;
 use std::fs::{self, File};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub fn compile(
@@ -48,7 +48,7 @@ pub fn compile(
         name: config.name.clone(),
         version: config.version.clone(),
         created: Utc::now(),
-        files: std::collections::BTreeMap::new(),
+        files: BTreeMap::new(),
     };
 
     let dist_dir = match output_dir {
@@ -72,32 +72,20 @@ pub fn compile(
     let mut tar_builder = tar::Builder::new(encoder);
 
     for (archive_path_str, fs_path) in &entries {
-        let mut file = File::open(fs_path)?;
-        let mut hasher = Sha512::new();
-        let mut buf = [0u8; 8192];
-        loop {
-            let n = file.read(&mut buf)?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buf[..n]);
-        }
-
-        let hash = hex::encode(hasher.finalize());
-        let metadata = fs::metadata(fs_path)?;
-        let size = metadata.len();
+        let data = fs::read(fs_path)?;
+        let hash = hex::encode(Sha512::digest(&data));
+        let size = data.len() as u64;
 
         manifest
             .files
             .insert(archive_path_str.clone(), FileEntry { size, sha512: hash });
 
-        let mut file = File::open(fs_path)?;
         let mut header = tar::Header::new_gnu();
         header
             .set_path(archive_path_str)
             .map_err(|e| ArctgzError::Io(std::io::Error::other(e)))?;
         header.set_size(size);
-        tar_builder.append_data(&mut header, archive_path_str, &mut file)?;
+        tar_builder.append_data(&mut header, archive_path_str, data.as_slice())?;
     }
 
     let manifest_json = serde_json::to_string_pretty(&manifest)?;
@@ -124,7 +112,13 @@ fn collect_files(
     for entry in fs::read_dir(base_dir)? {
         let entry = entry?;
         let path = entry.path();
-        let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
+
+        let file_name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| {
+            ArctgzError::Io(std::io::Error::other(format!(
+                "Non-UTF8 filename: {}",
+                path.display()
+            )))
+        })?;
         let archive_path = format!("{}/{}", prefix, file_name);
 
         let meta = fs::symlink_metadata(&path)?;

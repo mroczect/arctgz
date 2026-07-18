@@ -2,7 +2,7 @@ use crate::handler::{ArctgzError, ArctgzManifest};
 use sha2::{Digest, Sha512};
 use std::fs::{self, File};
 use std::io::Read;
-use std::path::Path;
+use std::path::{Component, Path};
 
 pub fn extract(archive_path: &Path, output_dir: &Path, force: bool) -> Result<(), ArctgzError> {
     let archive_file = File::open(archive_path)?;
@@ -29,6 +29,24 @@ pub fn extract(archive_path: &Path, output_dir: &Path, force: bool) -> Result<()
 
     let manifest_json = manifest_bytes.ok_or(ArctgzError::ManifestNotFound)?;
     let manifest: ArctgzManifest = serde_json::from_slice(&manifest_json)?;
+
+    for (file_path, _content) in &file_entries {
+        let path = Path::new(file_path);
+
+        if path.is_absolute() {
+            return Err(ArctgzError::ExtractError(format!(
+                "Unsafe path (absolute): {}",
+                file_path
+            )));
+        }
+
+        if path.components().any(|c| c == Component::ParentDir) {
+            return Err(ArctgzError::ExtractError(format!(
+                "Unsafe path (contains '..'): {}",
+                file_path
+            )));
+        }
+    }
 
     let mut extracted_files: std::collections::HashSet<String> = std::collections::HashSet::new();
     for (file_path, content) in &file_entries {
