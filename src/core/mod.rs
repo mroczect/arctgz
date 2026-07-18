@@ -1,3 +1,4 @@
+pub mod archive;
 pub mod compile;
 pub mod config;
 pub mod extract;

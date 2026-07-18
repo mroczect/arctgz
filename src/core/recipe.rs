@@ -17,9 +17,10 @@ pub fn load_recipe(project_path: &Path) -> Result<Option<ArctgzRecipe>, ArctgzEr
 }
 
 pub fn extract_recipe(archive_path: &Path) -> Result<ArctgzRecipe, ArctgzError> {
-    let archive_file = fs::File::open(archive_path)?;
-    let gz = flate2::read::GzDecoder::new(archive_file);
-    let mut tar = tar::Archive::new(gz);
+    let raw = std::fs::read(archive_path)?;
+    let compression = crate::core::archive::detect_compression(&raw)?;
+    let reader = crate::core::archive::make_reader(&raw, &compression)?;
+    let mut tar = tar::Archive::new(reader);
 
     for entry in tar.entries()? {
         let mut entry = entry?;
