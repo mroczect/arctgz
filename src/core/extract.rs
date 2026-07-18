@@ -1,58 +1,57 @@
-use crate::handler::{ArctgzError, ArctgzManifest};
+use crate::handler::{ArctgzError, ArctgzManifest, Compression};
 use sha2::{Digest, Sha512};
-use std::fs::{self, File};
+use std::collections::HashSet;
+use std::fs::{self};
 use std::io::Read;
 use std::path::{Component, Path};
 
 pub fn extract(archive_path: &Path, output_dir: &Path, force: bool) -> Result<(), ArctgzError> {
-    let archive_file = File::open(archive_path)?;
-    let gz = flate2::read::GzDecoder::new(archive_file);
-    let mut tar = tar::Archive::new(gz);
+    let raw = std::fs::read(archive_path)?;
 
+    let mut archive1 = tar::Archive::new(flate2::read::GzDecoder::new(&raw[..]));
     let mut manifest_bytes: Option<Vec<u8>> = None;
-    let mut file_entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for entry in archive1.entries()? {
+        let mut entry = entry?;
+        if entry.path()?.to_string_lossy() == "manifest.json" {
+            let mut buf = Vec::new();
+            entry.read_to_end(&mut buf)?;
+            manifest_bytes = Some(buf);
+            break;
+        }
+    }
+    let manifest_json = manifest_bytes.ok_or(ArctgzError::ManifestNotFound)?;
+    let manifest: ArctgzManifest = serde_json::from_slice(&manifest_json)?;
 
-    for entry in tar.entries()? {
+    let reader: Box<dyn Read> = match manifest.compression {
+        Compression::Gzip => Box::new(flate2::read::GzDecoder::new(&raw[..])),
+        Compression::Zstd => Box::new(zstd::stream::Decoder::new(&raw[..])?),
+    };
+    let mut archive2 = tar::Archive::new(reader);
+
+    let mut file_entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for entry in archive2.entries()? {
         let mut entry = entry?;
         let path = entry.path()?.to_string_lossy().into_owned();
 
         if path == "manifest.json" {
-            let mut buf = Vec::new();
-            entry.read_to_end(&mut buf)?;
-            manifest_bytes = Some(buf);
-        } else {
-            let mut buf = Vec::new();
-            entry.read_to_end(&mut buf)?;
-            file_entries.push((path, buf));
+            continue;
         }
+
+        let p = Path::new(&path);
+        if p.is_absolute() || p.components().any(|c| c == Component::ParentDir) {
+            return Err(ArctgzError::ExtractError(format!("Unsafe path: {}", path)));
+        }
+
+        let mut buf = Vec::new();
+        entry.read_to_end(&mut buf)?;
+        file_entries.push((path, buf));
     }
 
-    let manifest_json = manifest_bytes.ok_or(ArctgzError::ManifestNotFound)?;
-    let manifest: ArctgzManifest = serde_json::from_slice(&manifest_json)?;
-
-    for (file_path, _content) in &file_entries {
-        let path = Path::new(file_path);
-
-        if path.is_absolute() {
-            return Err(ArctgzError::ExtractError(format!(
-                "Unsafe path (absolute): {}",
-                file_path
-            )));
-        }
-
-        if path.components().any(|c| c == Component::ParentDir) {
-            return Err(ArctgzError::ExtractError(format!(
-                "Unsafe path (contains '..'): {}",
-                file_path
-            )));
-        }
-    }
-
-    let mut extracted_files: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut extracted_files: HashSet<String> = HashSet::new();
     for (file_path, content) in &file_entries {
         let expected = manifest.files.get(file_path.as_str()).ok_or_else(|| {
             ArctgzError::ExtractError(format!(
-                "File '{}' in archive is not listed in manifest",
+                "File '{}' in archive not listed in manifest",
                 file_path
             ))
         })?;
@@ -71,14 +70,13 @@ pub fn extract(archive_path: &Path, output_dir: &Path, force: bool) -> Result<()
     for expected_path in manifest.files.keys() {
         if !extracted_files.contains(expected_path.as_str()) {
             return Err(ArctgzError::ExtractError(format!(
-                "Manifest lists '{}' but file not found in archive",
+                "Manifest lists '{}' but not found in archive",
                 expected_path
             )));
         }
     }
 
     fs::create_dir_all(output_dir)?;
-
     for (file_path, content) in &file_entries {
         let dest = output_dir.join(file_path);
         if dest.exists() && !force {

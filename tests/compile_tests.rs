@@ -31,7 +31,7 @@ fn compile_uses_include_list() {
         let entries: Vec<_> = archive
             .entries()
             .unwrap()
-            .map(|e| e.unwrap().path().unwrap().to_str().unwrap().to_string())
+            .map(|e| e.unwrap().path().unwrap().to_string_lossy().into_owned())
             .collect();
         assert!(entries.contains(&"arctgz.init".to_string()));
         assert!(entries.contains(&"hello.txt".to_string()));
