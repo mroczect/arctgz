@@ -1,4 +1,5 @@
 mod core;
+pub mod ffi;
 pub mod handler;
 
 pub use core::init;
