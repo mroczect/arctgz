@@ -1,24 +1,11 @@
+mod common;
+
 use arctgz::{ArctgzError, init};
+use common::with_temp_home;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 use tempfile::TempDir;
-
-fn with_temp_home<F: FnOnce(&Path)>(test: F) {
-    let tmp = TempDir::new().expect("Failed to create base temp dir");
-    let home = tmp.path().join("home");
-    fs::create_dir(&home).unwrap();
-
-    let (env_key, env_val) = if cfg!(unix) {
-        ("HOME", home.to_str().unwrap().to_owned())
-    } else if cfg!(windows) {
-        ("USERPROFILE", home.to_str().unwrap().to_owned())
-    } else {
-        ("HOME", home.to_str().unwrap().to_owned())
-    };
-
-    temp_env::with_var(env_key, Some(&env_val), || test(&home));
-}
 
 #[test]
 fn init_creates_include_and_config() {
@@ -102,7 +89,7 @@ fn init_outside_home_existing_errors() {
 }
 
 #[test]
-fn init_outside_home_nonexistent_errors_and_creates_dir() {
+fn init_outside_home_nonexistent_no_side_effect() {
     let tmp = TempDir::new().unwrap();
     let outside_new = tmp.path().join("outside_new");
     let home = tmp.path().join("home");
@@ -116,9 +103,8 @@ fn init_outside_home_nonexistent_errors_and_creates_dir() {
 
     temp_env::with_var(env_key, Some(env_val), || {
         let res = init(&outside_new, false);
-        assert!(outside_new.exists(), "Directory created as side‑effect");
         assert!(matches!(res, Err(ArctgzError::PathNotAllowed(_))));
-        let _ = fs::remove_dir_all(&outside_new);
+        assert!(!outside_new.exists());
     });
 }
 

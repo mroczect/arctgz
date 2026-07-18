@@ -1,12 +1,14 @@
-.TH arctgz 7 "2026-07-19" "arctgz 0.1.0" "Miscellaneous Information Manual"
+.TH arctgz 7 "2026-07-19" "arctgz 0.3.0" "Miscellaneous Information Manual"
 .SH NAME
-arctgz \- safety-first project initialisation library for the arctgz archive format
+arctgz \- safety-first project initialisation and configuration management library for the arctgz archive format
 .SH SYNOPSIS
 .nf
-\fBuse arctgz::{init, ArctgzConfig, ArctgzError};\fP
+\fBuse arctgz::{init, load_config, save_config, ArctgzConfig, ArctgzError};\fP
 \fBuse std::path::Path;\fP
 
 \fBfn init(project_path: &Path, force: bool) -> Result<(), ArctgzError>;\fP
+\fBfn load_config(project_path: &Path) -> Result<ArctgzConfig, ArctgzError>;\fP
+\fBfn save_config(project_path: &Path, config: &ArctgzConfig) -> Result<(), ArctgzError>;\fP
 
 \fBstruct ArctgzConfig {\fP
     \fBpub name:    String,\fP
@@ -21,166 +23,252 @@ arctgz \- safety-first project initialisation library for the arctgz archive for
 \fBenum ArctgzError { ... }\fP
 .fi
 .SH DESCRIPTION
-The arctgz library offers a single, robust \fBinit\fP() function that scaffolds a new arctgz project directory.
-It enforces strict path confinement, validates all metadata before touching the filesystem, and creates the project configuration file atomically.
+The arctgz library provides a safe, cross-platform API for initialising and managing arctgz project directories.
+It enforces path confinement, validates metadata before touching the filesystem, and performs atomic file operations to prevent corruption and TOCTOU races.
 .PP
-\fBinit\fP() will:
+The core functionality includes:
 .IP \(bu 2
-create the project root directory if it does not already exist,
+\fBinit\fP() \(en scaffold a new project directory with a default configuration and an empty resource folder.
 .IP \(bu
-write a default \fBarctgz.init\fP JSON configuration file,
+\fBload_config\fP() \(en read and validate an existing project configuration.
 .IP \(bu
-create an empty \fBinclude/\fP sub-directory.
+\fBsave_config\fP() \(en atomically write a validated configuration back to disk.
 .PP
-If the target directory already contains an \fBarctgz.init\fP file the operation fails immediately (even when \fBforce\fP is \fBtrue\fP), preventing accidental overwrites of an existing project.
-.PP
-All paths are resolved via \fBstd::fs::canonicalize\fP() (\fBrealpath\fP(3) semantics), so symbolic links are transparently followed during the home-directory confinement check.
-The library is tested on Linux, macOS and Windows.
-.SH INIT FUNCTION
+All paths are resolved with \fBstd::fs::canonicalize\fP() (equivalent to \fBrealpath\fP(3)), so symbolic links are followed during the home-directory confinement check.
+The library is fully tested on Linux, macOS, and Windows.
+.SH FUNCTIONS
 .TP
 \fBinit\fP(\fIproject_path\fP, \fIforce\fP)
+.RS
+Initialises a new arctgz project at \fIproject_path\fP.
+.PP
+Arguments:
 .RS
 .TP
 \fIproject_path\fP
 A reference to a \fBstd::path::Path\fP.
-Must not be empty and must refer to a directory (or a non-existent location) that resides inside the user's home directory.
+The path must not be empty and must reside (after canonicalisation) under the current user's home directory.
+If the path does not exist, it will be created; otherwise it must be a directory.
 .TP
 \fIforce\fP
-If \fBtrue\fP, the function will proceed even when the target directory is not empty, provided no \fBarctgz.init\fP file already exists.
-Existing files are never overwritten.
+If \fBtrue\fP, skip the non-empty directory check.
+However, an existing \fBarctgz.init\fP file will still cause an \fBAlreadyInitialized\fP error.
+.RE
 .PP
-Returns \fBOk(())\fP on success, or an \fBArctgzError\fP on failure.
+Return value:
+.RS
+\fBOk(())\fP on success, or an \fBArctgzError\fP describing the failure.
+.RE
+.PP
+Side effects (only after all safety checks pass):
+.RS
+.IP \(bu 2
+Creates the project directory (and parents, if needed).
+.IP \(bu
+Creates the \fBinclude/\fP subdirectory.
+.IP \(bu
+Writes a default \fBarctgz.init\fP configuration file atomically (using \fBcreate_new(true)\fP).
+.RE
+.PP
+Security checks (performed before any filesystem modification):
+.RS
+.IP \(bu 2
+Home directory confinement \(en the canonicalised project path must start with the canonicalised home directory.
+Symlink attacks are neutralised.
+.IP \(bu
+Path validity \(en rejects empty paths, and rejects existing files (as opposed to directories).
+.IP \(bu
+Directory emptiness (unless \fBforce\fP is \fBtrue\fP).
+.RE
+.RE
+.TP
+\fBload_config\fP(\fIproject_path\fP)
+.RS
+Reads and validates the \fBarctgz.init\fP file from the given project directory.
+.PP
+Arguments:
+.RS
+.TP
+\fIproject_path\fP
+Path to the project root (must contain an \fBarctgz.init\fP file).
+.RE
+.PP
+Return value:
+.RS
+\fBOk(ArctgzConfig)\fP if the file exists, contains valid JSON, and passes \fBvalidate()\fP.
+On failure, returns an \fBArctgzError\fP variant (\fBConfigNotFound\fP, \fBConfigLoadError\fP, or \fBConfigValidation\fP).
+.RE
+.RE
+.TP
+\fBsave_config\fP(\fIproject_path\fP, \fIconfig\fP)
+.RS
+Writes a validated \fBArctgzConfig\fP back to the project's \fBarctgz.init\fP file atomically.
+The operation first writes the JSON to a temporary file (\fBarctgz.tmp\fP) and then renames it over the original.
+This prevents corruption if the process crashes mid-write.
+.PP
+Arguments:
+.RS
+.TP
+\fIproject_path\fP
+Path to the project root.
+.TP
+\fIconfig\fP
+An \fBArctgzConfig\fP instance to save.
+Must pass \fBvalidate()\fP before saving.
+.RE
+.PP
+Return value:
+.RS
+\fBOk(())\fP on success, or an \fBArctgzError\fP (\fBConfigValidation\fP, \fBConfigSaveError\fP, or \fBJson\fP).
+.RE
 .RE
 .SH TYPES
 .TP
 \fBArctgzConfig\fP
-Represents the contents of the \fBarctgz.init\fP configuration file.
-.RS
+Represents the project configuration stored in \fBarctgz.init\fP.
 .PP
 Fields:
 .RS
 .TP
 \fBname\fP
-project name (default \fB"untitled"\fP).
+Project name (default \fB"untitled"\fP).
+Valid characters: alphanumeric, \fB-\fP, and \fB_\fP.
+Maximum length 255 characters.
 .TP
 \fBversion\fP
-semantic version (default \fB"0.1.0"\fP).
+Semantic version string (default \fB"0.1.0"\fP), validated against the \fBsemver\fP crate.
 .TP
 \fBinclude\fP
-list of relative resource paths (default \fB[]\fP).
+List of relative resource paths (default \fB[]\fP).
+Each path must be relative, must not contain \fB..\fP (parent directory) components, and the list may contain at most 100 entries.
 .RE
 .PP
 \fBvalidate\fP()
 .br
-Checks:
-.RS
-.IP \(bu 2
-\fBname\fP is non-empty, \(<= 255 chars, and contains only alphanumerics, '\-' or '_',
-.IP \(bu
-\fBversion\fP is a valid semver string,
-.IP \(bu
-\fBinclude\fP paths are relative, do not contain "\fB..\fP", and the list has at most 100 entries.
-.RE
+Validates all fields according to the rules above.
+Returns \fBOk(())\fP or an \fBArctgzError::ConfigValidation\fP with a human-readable message.
 .PP
-Returns \fBOk(())\fP or an \fBArctgzError::ConfigValidation\fP.
-.RE
+The struct is serialised/deserialised with \fB#[serde(deny_unknown_fields)]\fP, so unknown JSON keys in the configuration file will cause a deserialisation error.
 .TP
 \fBArctgzError\fP
-An enumeration covering all failure cases:
+An enumeration covering all failure cases.
+Each variant holds a descriptive message (or source error) to aid debugging.
+.PP
+Variants:
 .RS
 .TP
 \fBIo(std::io::Error)\fP
-An I/O error occurred during directory creation or file writing.
+Filesystem I/O error (e.g., creating directories, writing files).
 .TP
 \fBJson(serde_json::Error)\fP
-JSON serialisation/deserialisation failure.
+JSON serialisation or deserialisation failure.
 .TP
 \fBAlreadyInitialized\fP
-An \fBarctgz.init\fP file already exists in the target directory.
+An \fBarctgz.init\fP file already exists in the target directory during \fBinit\fP().
 .TP
 \fBInvalidPath(String)\fP
-The supplied path is empty, or the path exists but is not a directory.
+The supplied path is empty or is an existing file, not a directory.
 .TP
 \fBPathNotAllowed(String)\fP
-The canonicalised path lies outside the user's home directory.
+The canonicalised project path lies outside the user's home directory.
 .TP
 \fBDirectoryNotEmpty(String)\fP
-The directory exists, is not empty, and \fBforce\fP was \fBfalse\fP.
+The target directory exists, is not empty, and \fBforce\fP was \fBfalse\fP.
 .TP
 \fBConfigValidation(String)\fP
-\fBArctgzConfig::validate\fP() failed with a human-readable message.
+A configuration validation rule failed (e.g., invalid name, version, or include).
+.TP
+\fBConfigNotFound(String)\fP
+\fBload_config\fP() could not find the \fBarctgz.init\fP file.
+.TP
+\fBConfigLoadError(String)\fP
+\fBload_config\fP() encountered an I/O error or invalid JSON.
+.TP
+\fBConfigSaveError(String)\fP
+\fBsave_config\fP() failed during the write or rename step.
 .RE
-.SH ERRORS
-The conditions that cause \fBinit\fP() to return each error variant are documented under \fBArctgzError\fP above.
-Callers should pattern-match on the error variant to provide appropriate feedback.
+.RE
 .SH EXAMPLE
+.SS Basic initialisation
 .nf
 \fBuse std::path::Path;\fP
 \fBuse arctgz;\fP
 
 \fBfn main() -> Result<(), Box<dyn std::error::Error>> {\fP
-    \fB// scaffold a new project in ~/my-project\fP
     \fBlet project_path = Path::new("./my-project");\fP
     \fBarctgz::init(project_path, false)?;\fP
-    \fBprintln!("Project created successfully");\fP
+    \fBprintln!("Project created.");\fP
     \fBOk(())\fP
 \fB}\fP
 .fi
 .PP
-After a successful run the directory looks like:
-.PP
+After running the above, the directory looks like:
 .nf
 \fBmy-project/\fP
 \fB\(a`-- arctgz.init\fP
 \fB\(a`-- include/\fP
 .fi
-.PP
-The generated \fBarctgz.init\fP will contain:
-.PP
+.SS Editing configuration
 .nf
-\fB{\fP
-  \fB"name": "untitled",\fP
-  \fB"version": "0.1.0",\fP
-  \fB"include": []\fP
+\fBuse arctgz::{load_config, save_config};\fP
+
+\fBfn configure(project: &std::path::Path) -> Result<(), arctgz::ArctgzError> {\fP
+    \fBlet mut config = load_config(project)?;\fP
+    \fBconfig.name = "hello-world".into();\fP
+    \fBconfig.include.push("assets".into());\fP
+    \fBsave_config(project, &config)?;\fP
+    \fBOk(())\fP
 \fB}\fP
 .fi
 .SH FILES
 .TP
 \fBarctgz.init\fP
-JSON file holding project metadata.
-Written atomically with \fBcreate_new(true)\fP \(en the file is never truncated or overwritten.
+JSON configuration file.
+Written atomically by \fBinit\fP() and \fBsave_config\fP().
+The library never truncates an existing file unless explicitly overwritten via \fBsave_config\fP().
 .TP
 \fBinclude/\fP
-An empty directory that serves as the default location for resource files that will be bundled into the final archive.
+An empty directory created during initialisation.
+It is intended to hold resource files for later compilation/archiving.
 .SH ENVIRONMENT
 .TP
-\fBHOME\fP
-The library obtains the home directory via the \fBdirs\fP crate.
-If \fBHOME\fP is not set it falls back to platform-specific methods.
-If no home directory can be determined, \fBinit\fP() fails with a \fBPathNotAllowed\fP error for any relative path.
-.SH SECURITY CONSIDERATIONS
+\fBHOME\fP (Unix) / \fBUSERPROFILE\fP (Windows)
+The library obtains the current user's home directory through the \fBdirs\fP crate.
+If the variable is not set, a platform-specific fallback is attempted.
+If no home directory can be determined, \fBinit\fP() will fail with \fBPathNotAllowed\fP for any path (even relative ones) because confinement cannot be verified.
+.SH SECURITY
 .IP \(bu 2
-Path confinement \(en only paths inside the user's home directory are permitted.
-Symlink attacks are neutralised by canonicalisation before the check.
+Path confinement: only paths inside the canonicalised home directory are allowed.
+Symlink traversal is fully mitigated by canonicalising both the project path and the home directory.
 .IP \(bu
-Atomic config creation \(en the configuration file is opened with \fBcreate_new(true)\fP, preventing TOCTOU races.
+No side effects before validation: \fBinit\fP() resolves the path and performs all security checks before creating any directories.
+Thus, even a failed call with a path outside the home directory will not leave unwanted directories on disk.
 .IP \(bu
-Input validation \(en project name, version and include paths are validated before any filesystem modification, reducing the risk of injection or malformed metadata.
+Atomic configuration writes: the use of \fBcreate_new(true)\fP for \fBinit\fP() prevents TOCTOU attacks when creating the initial config.
+\fBsave_config\fP() writes to a temporary file and renames, ensuring the configuration file is never left in an incomplete state.
+.IP \(bu
+Input validation: configuration fields are strictly validated.
+Unknown JSON keys are rejected, preventing accidental or malicious settings from entering the project metadata.
+.SH NOTES
+The library is intended to be used as a building block for higher-level tools.
+It does not impose any locking mechanism; concurrent calls on the same directory may race (see \fBTOCTOU\fP considerations in the security section).
+Users should serialise access when operating on the same project from multiple processes or threads.
 .SH VERSION
-arctgz 0.1.0 \(en early development release.
-Only project initialisation is implemented.
-Future releases will add compile, verify and extract functionality.
+arctgz 0.3.0 \(en project initialisation and configuration management are implemented.
+Future releases will introduce archive compilation, verification, and extraction.
 .SH SEE ALSO
 \fBsemver\fP(7),
 \fBrealpath\fP(3),
 \fBserde_json\fP(5),
 \fBdirs\fP(7)
 .SH BUGS
-The library is in early development.
-Report issues at the project repository.
-.PP
-The \fBinclude/\fP directory is always created empty; there is currently no mechanism to add files during initialisation.
-This will be addressed in a future release.
+.IP \(bu 2
+The \fBinclude/\fP directory is always created empty; there is no \fBadd\fP command yet.
+Use \fBload_config\fP/\fBsave_config\fP to manage the include list manually.
+.IP \(bu
+Concurrent \fBinit\fP calls on the same path are not serialised and may lead to one process failing with \fBAlreadyInitialized\fP while another has already created the directory.
+.IP \(bu
+The library does not clean up the \fBinclude/\fP directory if the configuration write fails halfway through initialisation.
 .SH AUTHORS
 The arctgz developers.
 .SH LICENSE

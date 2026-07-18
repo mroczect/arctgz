@@ -1,7 +1,9 @@
 use crate::handler::ArctgzError;
 use serde::{Deserialize, Serialize};
+use std::path::Component;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct ArctgzConfig {
     pub name: String,
     pub version: String,
@@ -49,6 +51,7 @@ impl ArctgzConfig {
                 "Maximum of 100 include entries allowed".into(),
             ));
         }
+
         for (i, inc) in self.include.iter().enumerate() {
             if inc.trim().is_empty() {
                 return Err(ArctgzError::ConfigValidation(format!(
@@ -56,10 +59,18 @@ impl ArctgzConfig {
                     i + 1
                 )));
             }
+
             let p = std::path::Path::new(inc);
-            if p.is_absolute() || inc.contains("..") {
+            if p.is_absolute() {
                 return Err(ArctgzError::ConfigValidation(format!(
-                    "Invalid include '{}' (must be relative and without '..')",
+                    "Invalid include '{}': must be a relative path",
+                    inc
+                )));
+            }
+
+            if p.components().any(|c| c == Component::ParentDir) {
+                return Err(ArctgzError::ConfigValidation(format!(
+                    "Invalid include '{}': must not contain '..' path components",
                     inc
                 )));
             }

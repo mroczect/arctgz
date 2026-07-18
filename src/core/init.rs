@@ -10,23 +10,28 @@ pub fn init(project_path: &Path, force: bool) -> Result<(), ArctgzError> {
         ));
     }
 
-    let canonical = match fs::canonicalize(project_path) {
-        Ok(p) => p,
-        Err(e) if e.kind() == ErrorKind::NotFound => {
-            let parent = project_path.parent().unwrap_or(Path::new("."));
-            fs::create_dir_all(parent)?;
-            fs::create_dir_all(project_path)?;
-            fs::canonicalize(project_path)?
-        }
-        Err(e) => return Err(ArctgzError::Io(e)),
-    };
-
     let home = dirs::home_dir()
         .ok_or_else(|| ArctgzError::PathNotAllowed("Could not determine home directory".into()))?;
-    if !canonical.starts_with(&home) {
+    let canonical_home = fs::canonicalize(&home)?;
+
+    let canonical = if project_path.exists() {
+        fs::canonicalize(project_path)?
+    } else {
+        let ancestor = project_path
+            .ancestors()
+            .find(|a| a.exists())
+            .unwrap_or_else(|| Path::new("."));
+        let canonical_ancestor = fs::canonicalize(ancestor)?;
+        let remainder = project_path.strip_prefix(ancestor).unwrap_or(Path::new(""));
+        canonical_ancestor.join(remainder)
+    };
+
+    if !canonical.starts_with(&canonical_home) {
         return Err(ArctgzError::PathNotAllowed(format!(
-            "Initialization only allowed under home directory ({})",
-            home.display()
+            "Initialization only allowed under home directory ({}). \
+             The resolved path would be {}",
+            canonical_home.display(),
+            canonical.display()
         )));
     }
 
@@ -45,6 +50,7 @@ pub fn init(project_path: &Path, force: bool) -> Result<(), ArctgzError> {
         }
     }
 
+    fs::create_dir_all(&canonical)?;
     let include_dir = canonical.join("include");
     fs::create_dir_all(&include_dir)?;
 

@@ -22,4 +22,13 @@ pub enum ArctgzError {
 
     #[error("Config validation failed: {0}")]
     ConfigValidation(String),
+
+    #[error("Configuration file not found: {0}")]
+    ConfigNotFound(String),
+
+    #[error("Failed to load configuration: {0}")]
+    ConfigLoadError(String),
+
+    #[error("Failed to save configuration: {0}")]
+    ConfigSaveError(String),
 }
