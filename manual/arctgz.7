@@ -1,0 +1,188 @@
+.TH arctgz 7 "2026-07-19" "arctgz 0.1.0" "Miscellaneous Information Manual"
+.SH NAME
+arctgz \- safety-first project initialisation library for the arctgz archive format
+.SH SYNOPSIS
+.nf
+\fBuse arctgz::{init, ArctgzConfig, ArctgzError};\fP
+\fBuse std::path::Path;\fP
+
+\fBfn init(project_path: &Path, force: bool) -> Result<(), ArctgzError>;\fP
+
+\fBstruct ArctgzConfig {\fP
+    \fBpub name:    String,\fP
+    \fBpub version: String,\fP
+    \fBpub include: Vec<String>,\fP
+\fB}\fP
+
+\fBimpl ArctgzConfig {\fP
+    \fBpub fn validate(&self) -> Result<(), ArctgzError>;\fP
+\fB}\fP
+
+\fBenum ArctgzError { ... }\fP
+.fi
+.SH DESCRIPTION
+The arctgz library offers a single, robust \fBinit\fP() function that scaffolds a new arctgz project directory.
+It enforces strict path confinement, validates all metadata before touching the filesystem, and creates the project configuration file atomically.
+.PP
+\fBinit\fP() will:
+.IP \(bu 2
+create the project root directory if it does not already exist,
+.IP \(bu
+write a default \fBarctgz.init\fP JSON configuration file,
+.IP \(bu
+create an empty \fBinclude/\fP sub-directory.
+.PP
+If the target directory already contains an \fBarctgz.init\fP file the operation fails immediately (even when \fBforce\fP is \fBtrue\fP), preventing accidental overwrites of an existing project.
+.PP
+All paths are resolved via \fBstd::fs::canonicalize\fP() (\fBrealpath\fP(3) semantics), so symbolic links are transparently followed during the home-directory confinement check.
+The library is tested on Linux, macOS and Windows.
+.SH INIT FUNCTION
+.TP
+\fBinit\fP(\fIproject_path\fP, \fIforce\fP)
+.RS
+.TP
+\fIproject_path\fP
+A reference to a \fBstd::path::Path\fP.
+Must not be empty and must refer to a directory (or a non-existent location) that resides inside the user's home directory.
+.TP
+\fIforce\fP
+If \fBtrue\fP, the function will proceed even when the target directory is not empty, provided no \fBarctgz.init\fP file already exists.
+Existing files are never overwritten.
+.PP
+Returns \fBOk(())\fP on success, or an \fBArctgzError\fP on failure.
+.RE
+.SH TYPES
+.TP
+\fBArctgzConfig\fP
+Represents the contents of the \fBarctgz.init\fP configuration file.
+.RS
+.PP
+Fields:
+.RS
+.TP
+\fBname\fP
+project name (default \fB"untitled"\fP).
+.TP
+\fBversion\fP
+semantic version (default \fB"0.1.0"\fP).
+.TP
+\fBinclude\fP
+list of relative resource paths (default \fB[]\fP).
+.RE
+.PP
+\fBvalidate\fP()
+.br
+Checks:
+.RS
+.IP \(bu 2
+\fBname\fP is non-empty, \(<= 255 chars, and contains only alphanumerics, '\-' or '_',
+.IP \(bu
+\fBversion\fP is a valid semver string,
+.IP \(bu
+\fBinclude\fP paths are relative, do not contain "\fB..\fP", and the list has at most 100 entries.
+.RE
+.PP
+Returns \fBOk(())\fP or an \fBArctgzError::ConfigValidation\fP.
+.RE
+.TP
+\fBArctgzError\fP
+An enumeration covering all failure cases:
+.RS
+.TP
+\fBIo(std::io::Error)\fP
+An I/O error occurred during directory creation or file writing.
+.TP
+\fBJson(serde_json::Error)\fP
+JSON serialisation/deserialisation failure.
+.TP
+\fBAlreadyInitialized\fP
+An \fBarctgz.init\fP file already exists in the target directory.
+.TP
+\fBInvalidPath(String)\fP
+The supplied path is empty, or the path exists but is not a directory.
+.TP
+\fBPathNotAllowed(String)\fP
+The canonicalised path lies outside the user's home directory.
+.TP
+\fBDirectoryNotEmpty(String)\fP
+The directory exists, is not empty, and \fBforce\fP was \fBfalse\fP.
+.TP
+\fBConfigValidation(String)\fP
+\fBArctgzConfig::validate\fP() failed with a human-readable message.
+.RE
+.SH ERRORS
+The conditions that cause \fBinit\fP() to return each error variant are documented under \fBArctgzError\fP above.
+Callers should pattern-match on the error variant to provide appropriate feedback.
+.SH EXAMPLE
+.nf
+\fBuse std::path::Path;\fP
+\fBuse arctgz;\fP
+
+\fBfn main() -> Result<(), Box<dyn std::error::Error>> {\fP
+    \fB// scaffold a new project in ~/my-project\fP
+    \fBlet project_path = Path::new("./my-project");\fP
+    \fBarctgz::init(project_path, false)?;\fP
+    \fBprintln!("Project created successfully");\fP
+    \fBOk(())\fP
+\fB}\fP
+.fi
+.PP
+After a successful run the directory looks like:
+.PP
+.nf
+\fBmy-project/\fP
+\fB\(a`-- arctgz.init\fP
+\fB\(a`-- include/\fP
+.fi
+.PP
+The generated \fBarctgz.init\fP will contain:
+.PP
+.nf
+\fB{\fP
+  \fB"name": "untitled",\fP
+  \fB"version": "0.1.0",\fP
+  \fB"include": []\fP
+\fB}\fP
+.fi
+.SH FILES
+.TP
+\fBarctgz.init\fP
+JSON file holding project metadata.
+Written atomically with \fBcreate_new(true)\fP \(en the file is never truncated or overwritten.
+.TP
+\fBinclude/\fP
+An empty directory that serves as the default location for resource files that will be bundled into the final archive.
+.SH ENVIRONMENT
+.TP
+\fBHOME\fP
+The library obtains the home directory via the \fBdirs\fP crate.
+If \fBHOME\fP is not set it falls back to platform-specific methods.
+If no home directory can be determined, \fBinit\fP() fails with a \fBPathNotAllowed\fP error for any relative path.
+.SH SECURITY CONSIDERATIONS
+.IP \(bu 2
+Path confinement \(en only paths inside the user's home directory are permitted.
+Symlink attacks are neutralised by canonicalisation before the check.
+.IP \(bu
+Atomic config creation \(en the configuration file is opened with \fBcreate_new(true)\fP, preventing TOCTOU races.
+.IP \(bu
+Input validation \(en project name, version and include paths are validated before any filesystem modification, reducing the risk of injection or malformed metadata.
+.SH VERSION
+arctgz 0.1.0 \(en early development release.
+Only project initialisation is implemented.
+Future releases will add compile, verify and extract functionality.
+.SH SEE ALSO
+\fBsemver\fP(7),
+\fBrealpath\fP(3),
+\fBserde_json\fP(5),
+\fBdirs\fP(7)
+.SH BUGS
+The library is in early development.
+Report issues at the project repository.
+.PP
+The \fBinclude/\fP directory is always created empty; there is currently no mechanism to add files during initialisation.
+This will be addressed in a future release.
+.SH AUTHORS
+The arctgz developers.
+.SH LICENSE
+MIT.
+See the LICENSE file in the source distribution.
