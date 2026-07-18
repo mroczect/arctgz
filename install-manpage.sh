@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# arctgz man page installer – super simple version
+# arctgz man page installer – simple, safe, no auto‑sudo
 set -euo pipefail
 
 MAN_SECTION=7
@@ -7,20 +7,27 @@ MAN_NAME="arctgz.${MAN_SECTION}"
 INSTALL_DIR="/usr/local/share/man/man${MAN_SECTION}"
 RAW_URL="https://raw.githubusercontent.com/mroczect/arctgz/master/manual/arctgz.7"
 
+# Cek apakah dijalankan sebagai root
 if [ "$(id -u)" -ne 0 ]; then
-    echo "Requires root. Re-executing with sudo..."
-    exec sudo bash "$0" "$@"
+    echo "This script requires root privileges."
+    echo "Please re-run it with sudo:"
+    echo
+    echo "  curl -fsSL ${RAW_URL%/*}/install-manpage.sh | sudo bash"
+    echo
+    exit 1
 fi
 
+# Uninstall mode
 if [ "${1:-}" = "uninstall" ]; then
     rm -f "${INSTALL_DIR}/${MAN_NAME}" "${INSTALL_DIR}/${MAN_NAME}.gz"
     mandb -q "${INSTALL_DIR}" 2>/dev/null || true
-    echo "Uninstalled."
+    echo "Man page uninstalled."
     exit 0
 fi
 
-echo "Downloading man page..."
+echo "Downloading arctgz(7) man page..."
 mkdir -p "${INSTALL_DIR}"
+
 if command -v curl >/dev/null 2>&1; then
     curl -fsSL "$RAW_URL" -o "${INSTALL_DIR}/${MAN_NAME}"
 elif command -v wget >/dev/null 2>&1; then
@@ -31,7 +38,12 @@ else
 fi
 
 chmod 644 "${INSTALL_DIR}/${MAN_NAME}"
+echo "Man page installed to ${INSTALL_DIR}/${MAN_NAME}"
+
 if command -v mandb >/dev/null 2>&1; then
     mandb -q "${INSTALL_DIR}" 2>/dev/null || true
+    echo "Man database updated."
 fi
-echo "Man page installed. Try 'man 7 arctgz'."
+
+echo
+echo "Try 'man 7 arctgz' to view the manual."
