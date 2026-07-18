@@ -1,189 +1,238 @@
-.arctgz(7)            Miscellaneous Information Manual           arctgz(7)
+arctgz(7)						Miscellaneous Information Manual					      arctgz(7)
 
 NAME
-     arctgz – safety‑first project initialisation library for the arctgz
-     archive format
+       arctgz - safety-first project initialisation and configuration management library for the arctgz archive format
 
 SYNOPSIS
-     use arctgz::{init, ArctgzConfig, ArctgzError};
-     use std::path::Path;
+       use arctgz::{init, load_config, save_config, ArctgzConfig, ArctgzError};
+       use std::path::Path;
 
-     fn init(project_path: &Path, force: bool) -> Result<(), ArctgzError>;
+       fn init(project_path: &Path, force: bool) -> Result<(), ArctgzError>;
+       fn load_config(project_path: &Path) -> Result<ArctgzConfig, ArctgzError>;
+       fn save_config(project_path: &Path, config: &ArctgzConfig) -> Result<(), ArctgzError>;
 
-     struct ArctgzConfig {
-         pub name:    String,
-         pub version: String,
-         pub include: Vec<String>,
-     }
+       struct ArctgzConfig {
+	   pub name:	String,
+	   pub version: String,
+	   pub include: Vec<String>,
+       }
 
-     impl ArctgzConfig {
-         pub fn validate(&self) -> Result<(), ArctgzError>;
-     }
+       impl ArctgzConfig {
+	   pub fn validate(&self) -> Result<(), ArctgzError>;
+       }
 
-     enum ArctgzError { ... }
+       enum ArctgzError { ... }
 
 DESCRIPTION
-     The arctgz library offers a single, robust init() function that
-     scaffolds a new arctgz project directory.  It enforces strict path
-     confinement, validates all metadata before touching the filesystem,
-     and creates the project configuration file atomically.
+       The  arctgz library provides a safe, cross-platform API for initialising and managing arctgz project directories.  It enforces path con‐
+       finement, validates metadata before touching the filesystem, and performs atomic file operations to prevent corruption and TOCTOU races.
 
-     init() will:
-       •  create the project root directory if it does not already exist,
-       •  write a default arctgz.init JSON configuration file,
-       •  create an empty include/ sub‑directory.
+       The core functionality includes:
 
-     If the target directory already contains an arctgz.init file the
-     operation fails immediately (even when force is true), preventing
-     accidental overwrites of an existing project.
+       • init() – scaffold a new project directory with a default configuration and an empty resource folder.
 
-     All paths are resolved via std::fs::canonicalize() (realpath(3)
-     semantics), so symbolic links are transparently followed during the
-     home‑directory confinement check.  The library is tested on Linux,
-     macOS and Windows.
+       • load_config() – read and validate an existing project configuration.
 
-INIT FUNCTION
-     init(project_path, force)
-             project_path
-                     A reference to a std::path::Path.  Must not be
-                     empty and must refer to a directory (or a non‑
-                     existent location) that resides inside the user’s
-                     home directory.
+       • save_config() – atomically write a validated configuration back to disk.
 
-             force   If true, the function will proceed even when the
-                     target directory is not empty, provided no
-                     arctgz.init file already exists.  Existing files
-                     are never overwritten.
+       All paths are resolved with std::fs::canonicalize() (equivalent to realpath(3)), so symbolic links are followed during  the  home-direc‐
+       tory confinement check.	The library is fully tested on Linux, macOS, and Windows.
 
-             Returns Ok(()) on success, or an ArctgzError on failure.
+FUNCTIONS
+       init(project_path, force)
+	      Initialises a new arctgz project at project_path.
+
+	      Arguments:
+
+		     project_path
+			    A  reference  to  a std::path::Path.  The path must not be empty and must reside (after canonicalisation) under the
+			    current user's home directory.  If the path does not exist, it will be created; otherwise it must be a directory.
+
+		     force  If true, skip the non-empty directory check.  However, an existing arctgz.init file will still cause an AlreadyIni‐
+			    tialized error.
+
+	      Return value:
+		     Ok(()) on success, or an ArctgzError describing the failure.
+
+	      Side effects (only after all safety checks pass):
+
+		     • Creates the project directory (and parents, if needed).
+
+		     • Creates the include/ subdirectory.
+
+		     • Writes a default arctgz.init configuration file atomically (using create_new(true)).
+
+	      Security checks (performed before any filesystem modification):
+
+		     • Home directory confinement – the canonicalised project path must start with the canonicalised home  directory.	Symlink
+		       attacks are neutralised.
+
+		     • Path validity – rejects empty paths, and rejects existing files (as opposed to directories).
+
+		     • Directory emptiness (unless force is true).
+
+       load_config(project_path)
+	      Reads and validates the arctgz.init file from the given project directory.
+
+	      Arguments:
+
+		     project_path
+			    Path to the project root (must contain an arctgz.init file).
+
+	      Return value:
+		     Ok(ArctgzConfig) if the file exists, contains valid JSON, and passes validate().  On failure, returns an ArctgzError vari‐
+		     ant (ConfigNotFound, ConfigLoadError, or ConfigValidation).
+
+       save_config(project_path, config)
+	      Writes a validated ArctgzConfig back to the project's arctgz.init file atomically.  The operation first writes the JSON to a tem‐
+	      porary file (arctgz.tmp) and then renames it over the original.  This prevents corruption if the process crashes mid-write.
+
+	      Arguments:
+
+		     project_path
+			    Path to the project root.
+
+		     config An ArctgzConfig instance to save.  Must pass validate() before saving.
+
+	      Return value:
+		     Ok(()) on success, or an ArctgzError (ConfigValidation, ConfigSaveError, or Json).
 
 TYPES
-     ArctgzConfig
-             Represents the contents of the arctgz.init configuration
-             file.
+       ArctgzConfig
+	      Represents the project configuration stored in arctgz.init.
 
-             Fields:
-               name     – project name (default "untitled").
-               version  – semantic version (default "0.1.0").
-               include  – list of relative resource paths (default []).
+       Fields:
 
-             validate()
-                     Checks:
-                       •  name is non‑empty, ≤ 255 chars, and contains
-                          only alphanumerics, '-' or '_',
-                       •  version is a valid semver string,
-                       •  include paths are relative, do not contain
-                          "..", and the list has at most 100 entries.
-                     Returns Ok(()) or an ArctgzError::ConfigValidation.
+	      name   Project name (default "untitled").	 Valid characters: alphanumeric, -, and _.  Maximum length 255 characters.
 
-     ArctgzError
-             An enumeration covering all failure cases:
+	      version
+		     Semantic version string (default "0.1.0"), validated against the semver crate.
 
-               Io(std::io::Error)
-                       An I/O error occurred during directory creation
-                       or file writing.
+	      include
+		     List  of  relative resource paths (default []).  Each path must be relative, must not contain .. (parent directory) compo‐
+		     nents, and the list may contain at most 100 entries.
 
-               Json(serde_json::Error)
-                       JSON serialisation/deserialisation failure.
+       validate()
+       Validates all fields according to the rules above.  Returns Ok(()) or an ArctgzError::ConfigValidation with a human-readable message.
 
-               AlreadyInitialized
-                       An arctgz.init file already exists in the
-                       target directory.
+       The struct is serialised/deserialised with #[serde(deny_unknown_fields)], so unknown JSON keys in the configuration file	 will  cause  a
+       deserialisation error.
 
-               InvalidPath(String)
-                       The supplied path is empty, or the path exists
-                       but is not a directory.
+       ArctgzError
+	      An enumeration covering all failure cases.  Each variant holds a descriptive message (or source error) to aid debugging.
 
-               PathNotAllowed(String)
-                       The canonicalised path lies outside the user’s
-                       home directory.
+       Variants:
 
-               DirectoryNotEmpty(String)
-                       The directory exists, is not empty, and force
-                       was false.
+	      Io(std::io::Error)
+		     Filesystem I/O error (e.g., creating directories, writing files).
 
-               ConfigValidation(String)
-                       ArctgzConfig::validate() failed with a human‑
-                       readable message.
+	      Json(serde_json::Error)
+		     JSON serialisation or deserialisation failure.
 
-ERRORS
-     The conditions that cause init() to return each error variant are
-     documented under ArctgzError above.  Callers should pattern‑match
-     on the error variant to provide appropriate feedback.
+	      AlreadyInitialized
+		     An arctgz.init file already exists in the target directory during init().
+
+	      InvalidPath(String)
+		     The supplied path is empty or is an existing file, not a directory.
+
+	      PathNotAllowed(String)
+		     The canonicalised project path lies outside the user's home directory.
+
+	      DirectoryNotEmpty(String)
+		     The target directory exists, is not empty, and force was false.
+
+	      ConfigValidation(String)
+		     A configuration validation rule failed (e.g., invalid name, version, or include).
+
+	      ConfigNotFound(String)
+		     load_config() could not find the arctgz.init file.
+
+	      ConfigLoadError(String)
+		     load_config() encountered an I/O error or invalid JSON.
+
+	      ConfigSaveError(String)
+		     save_config() failed during the write or rename step.
 
 EXAMPLE
-     use std::path::Path;
-     use arctgz;
+   Basic initialisation
+       use std::path::Path;
+       use arctgz;
 
-     fn main() -> Result<(), Box<dyn std::error::Error>> {
-         // scaffold a new project in ~/my-project
-         let project_path = Path::new("./my-project");
-         arctgz::init(project_path, false)?;
-         println!("Project created successfully");
-         Ok(())
-     }
+       fn main() -> Result<(), Box<dyn std::error::Error>> {
+	   let project_path = Path::new("./my-project");
+	   arctgz::init(project_path, false)?;
+	   println!("Project created.");
+	   Ok(())
+       }
 
-     After a successful run the directory looks like:
+       After running the above, the directory looks like:
+       my-project/
+       -- arctgz.init
+       -- include/
 
-         my-project/
-         ├── arctgz.init
-         └── include/
+   Editing configuration
+       use arctgz::{load_config, save_config};
 
-     The generated arctgz.init will contain:
-
-         {
-           "name": "untitled",
-           "version": "0.1.0",
-           "include": []
-         }
+       fn configure(project: &std::path::Path) -> Result<(), arctgz::ArctgzError> {
+	   let mut config = load_config(project)?;
+	   config.name = "hello-world".into();
+	   config.include.push("assets".into());
+	   save_config(project, &config)?;
+	   Ok(())
+       }
 
 FILES
-     arctgz.init
-             JSON file holding project metadata.  Written atomically
-             with create_new(true) – the file is never truncated or
-             overwritten.
+       arctgz.init
+	      JSON  configuration  file.   Written atomically by init() and save_config().  The library never truncates an existing file unless
+	      explicitly overwritten via save_config().
 
-     include/
-             An empty directory that serves as the default location for
-             resource files that will be bundled into the final
-             archive.
+       include/
+	      An empty directory created during initialisation.	 It is intended to hold resource files for later compilation/archiving.
 
 ENVIRONMENT
-     HOME    The library obtains the home directory via the dirs crate.
-             If HOME is not set it falls back to platform‑specific
-             methods.  If no home directory can be determined, init()
-             fails with a PathNotAllowed error for any relative path.
+       HOME (Unix) / USERPROFILE (Windows)
+	      The library obtains the current user's home directory through the dirs crate.  If the variable is not  set,  a  platform-specific
+	      fallback	is attempted.  If no home directory can be determined, init() will fail with PathNotAllowed for any path (even relative
+	      ones) because confinement cannot be verified.
 
-SECURITY CONSIDERATIONS
-     •  Path confinement – only paths inside the user’s home directory
-        are permitted.  Symlink attacks are neutralised by
-        canonicalisation before the check.
-     •  Atomic config creation – the configuration file is opened with
-        create_new(true), preventing TOCTOU races.
-     •  Input validation – project name, version and include paths are
-        validated before any filesystem modification, reducing the risk
-        of injection or malformed metadata.
+SECURITY
+       • Path confinement: only paths inside the canonicalised home directory are allowed.  Symlink traversal is fully mitigated by  canonical‐
+	 ising both the project path and the home directory.
+
+       • No  side  effects before validation: init() resolves the path and performs all security checks before creating any directories.  Thus,
+	 even a failed call with a path outside the home directory will not leave unwanted directories on disk.
+
+       • Atomic configuration writes: the use of create_new(true) for  init()  prevents	 TOCTOU	 attacks  when	creating  the  initial	config.
+	 save_config() writes to a temporary file and renames, ensuring the configuration file is never left in an incomplete state.
+
+       • Input	validation:  configuration  fields  are strictly validated.  Unknown JSON keys are rejected, preventing accidental or malicious
+	 settings from entering the project metadata.
+
+NOTES
+       The library is intended to be used as a building block for higher-level tools.  It does not impose  any	locking	 mechanism;  concurrent
+       calls  on the same directory may race (see TOCTOU considerations in the security section).  Users should serialise access when operating
+       on the same project from multiple processes or threads.
 
 VERSION
-     arctgz 0.1.0 – early development release.  Only project
-     initialisation is implemented.  Future releases will add compile,
-     verify and extract functionality.
+       arctgz 0.3.0 – project initialisation and configuration management are implemented.  Future releases will introduce archive compilation,
+       verification, and extraction.
 
 SEE ALSO
-     semver(7), realpath(3), serde_json(5), dirs(7)
+       semver(7), realpath(3), serde_json(5), dirs(7)
 
 BUGS
-     The library is in early development.  Report issues at the project
-     repository.
+       • The include/ directory is always created empty; there is no add command yet.  Use load_config/save_config to manage the  include  list
+	 manually.
 
-     The include/ directory is always created empty; there is currently
-     no mechanism to add files during initialisation.  This will be
-     addressed in a future release.
+       • Concurrent  init  calls  on the same path are not serialised and may lead to one process failing with AlreadyInitialized while another
+	 has already created the directory.
+
+       • The library does not clean up the include/ directory if the configuration write fails halfway through initialisation.
 
 AUTHORS
-     The arctgz developers.
+       The arctgz developers.
 
 LICENSE
-     MIT.  See the LICENSE file in the source distribution.
+       MIT.  See the LICENSE file in the source distribution.
 
-                              2026-07-19                      arctgz(7)
+arctgz 0.3.0							   2026-07-19							      arctgz(7)
