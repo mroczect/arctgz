@@ -1,15 +1,29 @@
-arctgz(7)						Miscellaneous Information Manual					      arctgz(7)
+arctgz(7)						   Miscellaneous Information Manual						    arctgz(7)
 
 NAME
-       arctgz - safety-first project initialisation and configuration management library for the arctgz archive format
+       arctgz  -  safety-first	project	 initialisation, configuration management, archival compilation and extraction library for the arctgz archive
+       format
 
 SYNOPSIS
-       use arctgz::{init, load_config, save_config, ArctgzConfig, ArctgzError};
+       use arctgz::{
+	   init, load_config, save_config, compile, extract,
+	   ArctgzConfig, ArctgzManifest, FileEntry, ArctgzError
+       };
        use std::path::Path;
 
        fn init(project_path: &Path, force: bool) -> Result<(), ArctgzError>;
        fn load_config(project_path: &Path) -> Result<ArctgzConfig, ArctgzError>;
        fn save_config(project_path: &Path, config: &ArctgzConfig) -> Result<(), ArctgzError>;
+       fn compile(
+	   project_path: &Path,
+	   output_dir: Option<&Path>,
+	   force: bool
+       ) -> Result<PathBuf, ArctgzError>;
+       fn extract(
+	   archive_path: &Path,
+	   output_dir: &Path,
+	   force: bool
+       ) -> Result<(), ArctgzError>;
 
        struct ArctgzConfig {
 	   pub name:	String,
@@ -17,15 +31,26 @@ SYNOPSIS
 	   pub include: Vec<String>,
        }
 
-       impl ArctgzConfig {
-	   pub fn validate(&self) -> Result<(), ArctgzError>;
+       struct ArctgzManifest {
+	   pub name:	String,
+	   pub version: String,
+	   pub created: DateTime<Utc>,
+	   pub files:	BTreeMap<String, FileEntry>,
+       }
+
+       struct FileEntry {
+	   pub size:   u64,
+	   pub sha512: String,
        }
 
        enum ArctgzError { ... }
 
 DESCRIPTION
-       The  arctgz library provides a safe, cross-platform API for initialising and managing arctgz project directories.  It enforces path con‐
-       finement, validates metadata before touching the filesystem, and performs atomic file operations to prevent corruption and TOCTOU races.
+       The arctgz library provides a safe, cross-platform API for the full lifecycle of an arctgz project:  scaffolding,  configuration,  compilation
+       into a compressed archive, and verified extraction.
+
+       All  operations	enforce	 strict path confinement, validate metadata before touching the filesystem, and use atomic file operations to prevent
+       corruption and TOCTOU (time-of-check to time-of-use) races.
 
        The core functionality includes:
 
@@ -35,8 +60,21 @@ DESCRIPTION
 
        • save_config() – atomically write a validated configuration back to disk.
 
-       All paths are resolved with std::fs::canonicalize() (equivalent to realpath(3)), so symbolic links are followed during  the  home-direc‐
-       tory confinement check.	The library is fully tested on Linux, macOS, and Windows.
+       • compile() – bundle the project files and configuration into a signed (SHA-512) compressed archive.
+
+       • extract() – unpack an archive, verifying every file's integrity against the embedded manifest and preventing path traversal attacks.
+
+       All paths are resolved with std::fs::canonicalize() (equivalent to realpath(3)), so symbolic links are followed during the home-directory con‐
+       finement check.	The library is fully tested on Linux, macOS, and Windows.
+
+INSTALLATION
+       This man page can be installed system-wide using the provided installer script:
+
+       curl -fsSL https://raw.githubusercontent.com/mroczect/arctgz/master/install-manpage.sh | bash
+
+       The script places arctgz.7 into /usr/local/share/man/man7/ and updates the man database.	 To uninstall, run:
+
+       curl -fsSL https://raw.githubusercontent.com/mroczect/arctgz/master/install-manpage.sh | bash -s -- uninstall
 
 FUNCTIONS
        init(project_path, force)
@@ -45,11 +83,11 @@ FUNCTIONS
 	      Arguments:
 
 		     project_path
-			    A  reference  to  a std::path::Path.  The path must not be empty and must reside (after canonicalisation) under the
-			    current user's home directory.  If the path does not exist, it will be created; otherwise it must be a directory.
+			    A reference to a std::path::Path.  The path must not be empty and must reside (after canonicalisation) under the  current
+			    user's home directory.  If the path does not exist, it will be created; otherwise it must be a directory.
 
-		     force  If true, skip the non-empty directory check.  However, an existing arctgz.init file will still cause an AlreadyIni‐
-			    tialized error.
+		     force  If	true,  skip the non-empty directory check.  However, an existing arctgz.init file will still cause an AlreadyInitial‐
+			    ized error.
 
 	      Return value:
 		     Ok(()) on success, or an ArctgzError describing the failure.
@@ -64,8 +102,8 @@ FUNCTIONS
 
 	      Security checks (performed before any filesystem modification):
 
-		     • Home directory confinement – the canonicalised project path must start with the canonicalised home  directory.	Symlink
-		       attacks are neutralised.
+		     • Home directory confinement – the canonicalised project path must start with the canonicalised home directory.  Symlink attacks
+		       are neutralised.
 
 		     • Path validity – rejects empty paths, and rejects existing files (as opposed to directories).
 
@@ -80,12 +118,12 @@ FUNCTIONS
 			    Path to the project root (must contain an arctgz.init file).
 
 	      Return value:
-		     Ok(ArctgzConfig) if the file exists, contains valid JSON, and passes validate().  On failure, returns an ArctgzError vari‐
-		     ant (ConfigNotFound, ConfigLoadError, or ConfigValidation).
+		     Ok(ArctgzConfig) if the file exists, contains valid JSON, and passes validate().  On failure,  returns  an	 ArctgzError  variant
+		     (ConfigNotFound, ConfigLoadError, or ConfigValidation).
 
        save_config(project_path, config)
-	      Writes a validated ArctgzConfig back to the project's arctgz.init file atomically.  The operation first writes the JSON to a tem‐
-	      porary file (arctgz.tmp) and then renames it over the original.  This prevents corruption if the process crashes mid-write.
+	      Writes  a validated ArctgzConfig back to the project's arctgz.init file atomically.  The operation first writes the JSON to a temporary
+	      file (arctgz.tmp) and then renames it over the original.	This prevents corruption if the process crashes mid-write.
 
 	      Arguments:
 
@@ -96,6 +134,73 @@ FUNCTIONS
 
 	      Return value:
 		     Ok(()) on success, or an ArctgzError (ConfigValidation, ConfigSaveError, or Json).
+
+       compile(project_path, output_dir, force)
+	      Compiles the project into a compressed, integrity-verified arctgz archive (.artgz).
+
+	      The function:
+
+	      • Loads the project configuration via load_config().
+
+	      • Collects the arctgz.init file and all files listed in the include array, recursively  adding  directories  while  rejecting  symbolic
+		links.
+
+	      • Computes a SHA-512 hash for every file and records size + hash in an ArctgzManifest.
+
+	      • Creates a gzip-compressed tar archive containing the files and the manifest.json entry.
+
+	      • Writes the archive atomically via a temporary file and rename.
+
+	      Arguments:
+
+		     project_path
+			    Path to the project root.
+
+		     output_dir
+			    Optional output directory.	If None, the archive is placed in project_path/dist/.
+
+		     force  If true, overwrite an existing archive; otherwise fail if the archive already exists.
+
+	      Return value:
+		     Ok(PathBuf)  containing  the  full	 path to the created archive, or an ArctgzError (including IncludeFileNotFound, SymlinkNotAl‐
+		     lowed, or Io for an already-existing archive when force is false).
+
+	      Safety:
+
+		     • Symlinks are rejected to prevent reference leaks outside the project.
+
+		     • The entire archive is written atomically; a crash mid-write leaves no partial archive.
+
+       extract(archive_path, output_dir, force)
+	      Extracts a previously compiled arctgz archive, verifying the integrity of every file and guarding against path traversal attacks.
+
+	      The function:
+
+	      • Opens and decompresses the archive.
+
+	      • Locates the embedded manifest.json and deserialises it.
+
+	      • Checks that every file path in the archive is relative and does not contain .. (parent directory) components; rejects absolute paths.
+
+	      • Verifies that all files listed in the manifest are present in the archive and vice versa.
+
+	      • Recomputes the SHA-512 hash of each file and compares it to the manifest entry; a mismatch aborts with ChecksumMismatch.
+
+	      • Writes files to output_dir, creating subdirectories as needed, and refusing to overwrite existing files unless force is true.
+
+	      Arguments:
+
+		     archive_path
+			    Path to the .artgz archive.
+
+		     output_dir
+			    Destination directory; will be created if it does not exist.
+
+		     force  If true, overwrite existing files; otherwise abort on conflict.
+
+	      Return value:
+		     Ok(()) on success, or an ArctgzError (ManifestNotFound, ChecksumMismatch, ExtractError for unsafe paths, or  Io  for  file	 con‐
+		     flicts).
 
 TYPES
        ArctgzConfig
@@ -109,14 +214,38 @@ TYPES
 		     Semantic version string (default "0.1.0"), validated against the semver crate.
 
 	      include
-		     List  of  relative resource paths (default []).  Each path must be relative, must not contain .. (parent directory) compo‐
-		     nents, and the list may contain at most 100 entries.
+		     List  of  relative	 resource paths (default []).  Each path must be relative, must not contain .. (parent directory) components,
+		     and the list may contain at most 100 entries.
 
        validate()
        Validates all fields according to the rules above.  Returns Ok(()) or an ArctgzError::ConfigValidation with a human-readable message.
 
-       The struct is serialised/deserialised with #[serde(deny_unknown_fields)], so unknown JSON keys in the configuration file	 will  cause  a
-       deserialisation error.
+       The struct is serialised/deserialised with #[serde(deny_unknown_fields)], so unknown JSON keys in the configuration file will cause a  deseri‐
+       alisation error.
+
+       ArctgzManifest
+	      Embedded inside every compiled archive as manifest.json.
+
+	      Fields:
+
+		     name   Project name (copied from config).
+
+		     version
+			    Project version (copied from config).
+
+		     created
+			    UTC timestamp of archive creation (chrono::DateTime<Utc>).
+
+		     files  A BTreeMap mapping archived paths (relative strings) to FileEntry records.
+
+       FileEntry
+	      Metadata for a single file in the archive.
+
+	      Fields:
+
+		     size   File size in bytes.
+
+		     sha512 Hexadecimal string of the file's SHA-512 hash.
 
        ArctgzError
 	      An enumeration covering all failure cases.  Each variant holds a descriptive message (or source error) to aid debugging.
@@ -124,7 +253,7 @@ TYPES
        Variants:
 
 	      Io(std::io::Error)
-		     Filesystem I/O error (e.g., creating directories, writing files).
+		     Filesystem I/O error (e.g., creating directories, writing files, archive already exists).
 
 	      Json(serde_json::Error)
 		     JSON serialisation or deserialisation failure.
@@ -153,6 +282,22 @@ TYPES
 	      ConfigSaveError(String)
 		     save_config() failed during the write or rename step.
 
+	      SymlinkNotAllowed(String)
+		     A symbolic link was encountered during archive compilation; symlinks are forbidden.
+
+	      IncludeFileNotFound(String)
+		     A file listed in the include array does not exist on disk during compilation.
+
+	      ManifestNotFound
+		     The archive being extracted does not contain a manifest.json entry.
+
+	      ChecksumMismatch(String, String, String)
+		     A	file's	actual SHA-512 hash does not match the one recorded in the manifest.  The three fields are: file path, expected hash,
+		     actual hash.
+
+	      ExtractError(String)
+		     Generic extraction failure (unsafe path, missing file, etc.).
+
 EXAMPLE
    Basic initialisation
        use std::path::Path;
@@ -167,8 +312,8 @@ EXAMPLE
 
        After running the above, the directory looks like:
        my-project/
-       -- arctgz.init
-       -- include/
+       |-- arctgz.init
+       `-- include/
 
    Editing configuration
        use arctgz::{load_config, save_config};
@@ -181,53 +326,77 @@ EXAMPLE
 	   Ok(())
        }
 
+   Compiling and extracting
+       use arctgz::{compile, extract};
+
+       fn roundtrip(project: &std::path::Path) -> Result<(), arctgz::ArctgzError> {
+	   let archive = compile(project, None, false)?;
+	   let out_dir = project.parent().unwrap().join("output");
+	   extract(&archive, &out_dir, false)?;
+	   Ok(())
+       }
+
 FILES
        arctgz.init
-	      JSON  configuration  file.   Written atomically by init() and save_config().  The library never truncates an existing file unless
-	      explicitly overwritten via save_config().
+	      JSON configuration file.	Written atomically by init() and save_config().	 The library never truncates an existing file unless  explic‐
+	      itly overwritten via save_config().
 
        include/
 	      An empty directory created during initialisation.	 It is intended to hold resource files for later compilation/archiving.
 
+       dist/<name>-<version>.artgz
+	      Default output location for compiled archives (when output_dir is None).
+
+       manifest.json
+	      Embedded inside every .artgz archive; contains the project metadata and integrity records.
+
 ENVIRONMENT
        HOME (Unix) / USERPROFILE (Windows)
-	      The library obtains the current user's home directory through the dirs crate.  If the variable is not  set,  a  platform-specific
-	      fallback	is attempted.  If no home directory can be determined, init() will fail with PathNotAllowed for any path (even relative
-	      ones) because confinement cannot be verified.
+	      The library obtains the current user's home directory through the dirs crate.  If the variable is not set, a platform-specific fallback
+	      is  attempted.   If no home directory can be determined, init() will fail with PathNotAllowed for any path (even relative ones) because
+	      confinement cannot be verified.
 
 SECURITY
-       • Path confinement: only paths inside the canonicalised home directory are allowed.  Symlink traversal is fully mitigated by  canonical‐
-	 ising both the project path and the home directory.
+       • Path confinement: only paths inside the canonicalised home directory are allowed for initialisation.  Symlink traversal is  fully  mitigated
+	 by canonicalising both the project path and the home directory.
 
-       • No  side  effects before validation: init() resolves the path and performs all security checks before creating any directories.  Thus,
-	 even a failed call with a path outside the home directory will not leave unwanted directories on disk.
+       • No  side effects before validation: init() resolves the path and performs all security checks before creating any directories.	 Thus, even a
+	 failed call with a path outside the home directory will not leave unwanted directories on disk.
 
-       • Atomic configuration writes: the use of create_new(true) for  init()  prevents	 TOCTOU	 attacks  when	creating  the  initial	config.
-	 save_config() writes to a temporary file and renames, ensuring the configuration file is never left in an incomplete state.
+       • Atomic configuration writes: the use of create_new(true) for init() prevents TOCTOU attacks when creating the initial config.	save_config()
+	 and compile() write to a temporary file and rename, ensuring the target file is never left in an incomplete state.
 
-       • Input	validation:  configuration  fields  are strictly validated.  Unknown JSON keys are rejected, preventing accidental or malicious
-	 settings from entering the project metadata.
+       • Archive integrity: every file in the archive is hashed with SHA-512.  The manifest is embedded and verified during extraction; any  mismatch
+	 aborts with ChecksumMismatch.
+
+       • Path traversal prevention: extract() rejects any archived path that is absolute or contains .. components, preventing zip-slip attacks.
+
+       • Symlink rejection: compile() refuses to include symbolic links, ensuring archives contain only regular files and directories.
+
+       • Input	validation: configuration fields are strictly validated.  Unknown JSON keys are rejected, preventing accidental or malicious settings
+	 from entering the project metadata.
 
 NOTES
-       The library is intended to be used as a building block for higher-level tools.  It does not impose  any	locking	 mechanism;  concurrent
-       calls  on the same directory may race (see TOCTOU considerations in the security section).  Users should serialise access when operating
-       on the same project from multiple processes or threads.
+       The library is intended to be used as a building block for higher-level tools.  It does not impose any locking mechanism; concurrent calls  on
+       the  same  directory  may  race (see TOCTOU considerations in the security section).  Users should serialise access when operating on the same
+       project from multiple processes or threads.
 
 VERSION
-       arctgz 0.3.0 – project initialisation and configuration management are implemented.  Future releases will introduce archive compilation,
-       verification, and extraction.
+       arctgz 0.4.0 – full project lifecycle: initialisation, configuration management, archive compilation with SHA-512 integrity, and verified  ex‐
+       traction.  Future releases may add cryptographic signing and post-extraction recipes.
 
 SEE ALSO
-       semver(7), realpath(3), serde_json(5), dirs(7)
+       semver(7), realpath(3), serde_json(5), dirs(7), flate2(7), tar(5), sha2(7)
 
 BUGS
-       • The include/ directory is always created empty; there is no add command yet.  Use load_config/save_config to manage the  include  list
-	 manually.
+       • The include/ directory is always created empty; files must be added manually before compilation.
 
-       • Concurrent  init  calls  on the same path are not serialised and may lead to one process failing with AlreadyInitialized while another
-	 has already created the directory.
+       • Concurrent  init calls on the same path are not serialised and may lead to one process failing with AlreadyInitialized while another has al‐
+	 ready created the directory.
 
        • The library does not clean up the include/ directory if the configuration write fails halfway through initialisation.
+
+       • Archive format does not yet include cryptographic signatures; integrity is based solely on SHA-512 hashes.
 
 AUTHORS
        The arctgz developers.
@@ -235,4 +404,4 @@ AUTHORS
 LICENSE
        MIT.  See the LICENSE file in the source distribution.
 
-arctgz 0.3.0							   2026-07-19							      arctgz(7)
+arctgz 0.4.0							      2026-07-19							    arctgz(7)
