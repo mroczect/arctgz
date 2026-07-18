@@ -53,4 +53,7 @@ pub enum ArctgzError {
 
     #[error("Recipe execution error: {0}")]
     RecipeExecutionError(String),
+
+    #[error("Verification failed: {0}")]
+    VerifyError(String),
 }
