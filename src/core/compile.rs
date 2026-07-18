@@ -51,13 +51,14 @@ pub fn compile(
         }
     }
 
-    let entries_with_hash: Vec<(String, PathBuf, String, u64)> = entries
+    // Baca data SEKALI, simpan konten untuk menghindari TOCTOU dan I/O ulang
+    let entries_with_data: Vec<(String, Vec<u8>, String, u64)> = entries
         .par_iter()
         .map(|(archive_path, fs_path)| {
             let data = fs::read(fs_path)?;
             let hash = hex::encode(Sha512::digest(&data));
             let size = data.len() as u64;
-            Ok::<_, ArctgzError>((archive_path.clone(), fs_path.clone(), hash, size))
+            Ok::<_, ArctgzError>((archive_path.clone(), data, hash, size))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -68,7 +69,7 @@ pub fn compile(
         compression: config.compression.clone(),
         files: BTreeMap::new(),
     };
-    for (archive_path, _, hash, size) in &entries_with_hash {
+    for (archive_path, _data, hash, size) in &entries_with_data {
         manifest.files.insert(
             archive_path.clone(),
             FileEntry {
@@ -101,14 +102,14 @@ pub fn compile(
             let encoder =
                 flate2::write::GzEncoder::new(archive_file, flate2::Compression::default());
             let mut tar_builder = tar::Builder::new(encoder);
-            write_tar_entries(&mut tar_builder, &entries_with_hash, &manifest)?;
+            write_tar_entries(&mut tar_builder, &entries_with_data, &manifest)?;
             let encoder = tar_builder.into_inner()?;
             encoder.finish()?;
         }
         Compression::Zstd => {
             let encoder = zstd::stream::Encoder::new(archive_file, 0)?;
             let mut tar_builder = tar::Builder::new(encoder);
-            write_tar_entries(&mut tar_builder, &entries_with_hash, &manifest)?;
+            write_tar_entries(&mut tar_builder, &entries_with_data, &manifest)?;
             let encoder = tar_builder.into_inner()?;
             encoder.finish()?;
         }
@@ -120,11 +121,10 @@ pub fn compile(
 
 fn write_tar_entries<W: Write>(
     tar_builder: &mut tar::Builder<W>,
-    entries: &[(String, PathBuf, String, u64)],
+    entries: &[(String, Vec<u8>, String, u64)],
     manifest: &ArctgzManifest,
 ) -> Result<(), ArctgzError> {
-    for (archive_path, fs_path, _hash, size) in entries {
-        let data = fs::read(fs_path)?;
+    for (archive_path, data, _hash, size) in entries {
         let mut header = tar::Header::new_gnu();
         header
             .set_path(archive_path)
