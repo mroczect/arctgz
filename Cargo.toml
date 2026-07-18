@@ -1,0 +1,15 @@
+[package]
+name = "arctgz"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dirs = "6.0.0"
+semver = "1.0.28"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+thiserror = "2.0.18"
+
+[dev-dependencies]
+temp-env = "0.3.6"
+tempfile = "3.27.0"
