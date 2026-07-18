@@ -1,4 +1,5 @@
 use crate::handler::ArctgzError;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::Component;
 
@@ -78,4 +79,17 @@ impl ArctgzConfig {
 
         Ok(())
     }
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ArctgzManifest {
+    pub name: String,
+    pub version: String,
+    pub created: DateTime<Utc>,
+    pub files: std::collections::BTreeMap<String, FileEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FileEntry {
+    pub size: u64,
+    pub sha512: String,
 }
