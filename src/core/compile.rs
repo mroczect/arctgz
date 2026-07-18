@@ -1,8 +1,10 @@
-use crate::handler::{ArctgzError, ArctgzManifest, FileEntry};
+use crate::handler::{ArctgzError, ArctgzManifest, Compression, FileEntry};
 use chrono::Utc;
+use rayon::prelude::*;
 use sha2::{Digest, Sha512};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub fn compile(
@@ -49,12 +51,32 @@ pub fn compile(
         }
     }
 
+    let entries_with_hash: Vec<(String, PathBuf, String, u64)> = entries
+        .par_iter()
+        .map(|(archive_path, fs_path)| {
+            let data = fs::read(fs_path)?;
+            let hash = hex::encode(Sha512::digest(&data));
+            let size = data.len() as u64;
+            Ok::<_, ArctgzError>((archive_path.clone(), fs_path.clone(), hash, size))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     let mut manifest = ArctgzManifest {
         name: config.name.clone(),
         version: config.version.clone(),
         created: Utc::now(),
+        compression: config.compression.clone(),
         files: BTreeMap::new(),
     };
+    for (archive_path, _, hash, size) in &entries_with_hash {
+        manifest.files.insert(
+            archive_path.clone(),
+            FileEntry {
+                size: *size,
+                sha512: hash.clone(),
+            },
+        );
+    }
 
     let dist_dir = match output_dir {
         Some(d) => d.to_path_buf(),
@@ -73,40 +95,52 @@ pub fn compile(
 
     let temp_path = archive_path.with_extension("tmp");
     let archive_file = File::create(&temp_path)?;
-    let encoder = flate2::write::GzEncoder::new(archive_file, flate2::Compression::default());
-    let mut tar_builder = tar::Builder::new(encoder);
 
-    for (archive_path_str, fs_path) in &entries {
-        let data = fs::read(fs_path)?;
-        let hash = hex::encode(Sha512::digest(&data));
-        let size = data.len() as u64;
-
-        manifest
-            .files
-            .insert(archive_path_str.clone(), FileEntry { size, sha512: hash });
-
-        let mut header = tar::Header::new_gnu();
-        header
-            .set_path(archive_path_str)
-            .map_err(|e| ArctgzError::Io(std::io::Error::other(e)))?;
-        header.set_size(size);
-        tar_builder.append_data(&mut header, archive_path_str, data.as_slice())?;
+    match config.compression {
+        Compression::Gzip => {
+            let encoder =
+                flate2::write::GzEncoder::new(archive_file, flate2::Compression::default());
+            let mut tar_builder = tar::Builder::new(encoder);
+            write_tar_entries(&mut tar_builder, &entries_with_hash, &manifest)?;
+            let encoder = tar_builder.into_inner()?;
+            encoder.finish()?;
+        }
+        Compression::Zstd => {
+            let encoder = zstd::stream::Encoder::new(archive_file, 0)?;
+            let mut tar_builder = tar::Builder::new(encoder);
+            write_tar_entries(&mut tar_builder, &entries_with_hash, &manifest)?;
+            let encoder = tar_builder.into_inner()?;
+            encoder.finish()?;
+        }
     }
 
-    let manifest_json = serde_json::to_string_pretty(&manifest)?;
+    fs::rename(&temp_path, &archive_path)?;
+    Ok(archive_path)
+}
+
+fn write_tar_entries<W: Write>(
+    tar_builder: &mut tar::Builder<W>,
+    entries: &[(String, PathBuf, String, u64)],
+    manifest: &ArctgzManifest,
+) -> Result<(), ArctgzError> {
+    for (archive_path, fs_path, _hash, size) in entries {
+        let data = fs::read(fs_path)?;
+        let mut header = tar::Header::new_gnu();
+        header
+            .set_path(archive_path)
+            .map_err(|e| ArctgzError::Io(std::io::Error::other(e)))?;
+        header.set_size(*size);
+        tar_builder.append_data(&mut header, archive_path, data.as_slice())?;
+    }
+
+    let manifest_json = serde_json::to_string_pretty(manifest)?;
     let mut header = tar::Header::new_gnu();
     header
         .set_path("manifest.json")
         .map_err(|e| ArctgzError::Io(std::io::Error::other(e)))?;
     header.set_size(manifest_json.len() as u64);
     tar_builder.append_data(&mut header, "manifest.json", manifest_json.as_bytes())?;
-
-    let encoder = tar_builder.into_inner()?;
-    encoder.finish()?;
-
-    fs::rename(&temp_path, &archive_path)?;
-
-    Ok(archive_path)
+    Ok(())
 }
 
 fn collect_files(
