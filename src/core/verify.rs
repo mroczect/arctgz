@@ -1,4 +1,4 @@
-use crate::handler::{ArctgzError, ArctgzManifest, Compression};
+use crate::handler::ArctgzError;
 use sha2::{Digest, Sha512};
 use std::collections::HashSet;
 use std::io::Read;
@@ -6,25 +6,8 @@ use std::path::{Component, Path};
 
 pub fn verify(archive_path: &Path) -> Result<(), ArctgzError> {
     let raw = std::fs::read(archive_path)?;
+    let (manifest, reader) = crate::core::archive::open_archive(&raw)?;
 
-    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(&raw[..]));
-    let mut manifest_json: Option<Vec<u8>> = None;
-    for entry in archive.entries()? {
-        let mut entry = entry?;
-        if entry.path()?.to_string_lossy() == "manifest.json" {
-            let mut buf = Vec::new();
-            entry.read_to_end(&mut buf)?;
-            manifest_json = Some(buf);
-            break;
-        }
-    }
-    let manifest_json = manifest_json.ok_or(ArctgzError::ManifestNotFound)?;
-    let manifest: ArctgzManifest = serde_json::from_slice(&manifest_json)?;
-
-    let reader: Box<dyn Read> = match manifest.compression {
-        Compression::Gzip => Box::new(flate2::read::GzDecoder::new(&raw[..])),
-        Compression::Zstd => Box::new(zstd::stream::Decoder::new(&raw[..])?),
-    };
     let mut archive2 = tar::Archive::new(reader);
     let mut files_found: HashSet<String> = HashSet::new();
 
@@ -48,9 +31,10 @@ pub fn verify(archive_path: &Path) -> Result<(), ArctgzError> {
             )));
         }
 
-        let expected = manifest.files.get(&path).ok_or_else(|| {
-            ArctgzError::VerifyError(format!("File '{}' in archive not listed in manifest", path))
-        })?;
+        let expected = manifest
+            .files
+            .get(&path)
+            .ok_or_else(|| ArctgzError::VerifyError(format!("File '{}' not in manifest", path)))?;
 
         let mut content = Vec::new();
         entry.read_to_end(&mut content)?;
