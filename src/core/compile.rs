@@ -23,6 +23,7 @@ pub fn compile(
     entries.push(("arctgz.init".to_string(), project_path.join("arctgz.init")));
     let recipe_path = project_path.join("recipe.json");
     if recipe_path.exists() {
+        crate::core::recipe::load_recipe(project_path)?;
         entries.push(("recipe.json".to_string(), recipe_path));
     }
 

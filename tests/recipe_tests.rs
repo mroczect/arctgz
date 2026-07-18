@@ -93,8 +93,7 @@ fn recipe_path_traversal_rejected() {
             serde_json::to_string_pretty(&recipe).unwrap(),
         )
         .unwrap();
-        let archive = compile(&project, None, false).unwrap();
-        let r = extract_recipe(&archive);
-        assert!(matches!(r, Err(ArctgzError::RecipeInvalid(_))));
+        let res = compile(&project, None, false);
+        assert!(matches!(res, Err(ArctgzError::RecipeInvalid(_))));
     });
 }

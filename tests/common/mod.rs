@@ -7,10 +7,11 @@ pub fn with_temp_home<F: FnOnce(&Path)>(test: F) {
     let home = tmp.path().join("home");
     fs::create_dir(&home).unwrap();
 
+    let home_str = home.to_string_lossy().into_owned();
     let (env_key, env_val) = if cfg!(unix) {
-        ("HOME", home.to_str().unwrap().to_owned())
+        ("HOME", home_str)
     } else {
-        ("USERPROFILE", home.to_str().unwrap().to_owned())
+        ("USERPROFILE", home_str)
     };
 
     temp_env::with_var(env_key, Some(&env_val), || test(&home));
