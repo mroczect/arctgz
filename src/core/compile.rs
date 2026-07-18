@@ -21,6 +21,10 @@ pub fn compile(
 
     let mut entries: Vec<(String, PathBuf)> = Vec::new();
     entries.push(("arctgz.init".to_string(), project_path.join("arctgz.init")));
+    let recipe_path = project_path.join("recipe.json");
+    if recipe_path.exists() {
+        entries.push(("recipe.json".to_string(), recipe_path));
+    }
 
     for rel_path in &config.include {
         let full_path = include_dir.join(rel_path);

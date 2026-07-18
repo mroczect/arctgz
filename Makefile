@@ -45,3 +45,5 @@ ci: fmt-check clippy test
 rebuild:
 	make release && make install
 
+snap:
+	snapcat tests -f markdown -o dev/tests.snapcat.md && snapcat src -f markdown -o dev/src.snapcat.md

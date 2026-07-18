@@ -93,3 +93,24 @@ pub struct FileEntry {
     pub size: u64,
     pub sha512: String,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct ArctgzRecipe {
+    pub name: String,
+    pub version: String,
+    pub steps: Vec<RecipeStep>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "action")]
+pub enum RecipeStep {
+    #[serde(rename = "copy")]
+    Copy { from: String, to: String },
+    #[serde(rename = "mkdir")]
+    MkDir { path: String },
+    #[serde(rename = "chmod")]
+    Chmod { path: String, mode: String },
+    #[serde(rename = "remove")]
+    Remove { path: String },
+}

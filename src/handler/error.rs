@@ -45,4 +45,12 @@ pub enum ArctgzError {
 
     #[error("Extract error: {0}")]
     ExtractError(String),
+    #[error("Recipe not found in archive")]
+    RecipeNotFound,
+
+    #[error("Recipe validation failed: {0}")]
+    RecipeInvalid(String),
+
+    #[error("Recipe execution error: {0}")]
+    RecipeExecutionError(String),
 }
