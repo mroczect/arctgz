@@ -1,14 +1,27 @@
-.TH arctgz 7 "2026-07-19" "arctgz 0.3.0" "Miscellaneous Information Manual"
+.TH arctgz 7 "2026-07-19" "arctgz 0.4.0" "Miscellaneous Information Manual"
 .SH NAME
-arctgz \- safety-first project initialisation and configuration management library for the arctgz archive format
+arctgz \- safety-first project initialisation, configuration management, archival compilation and extraction library for the arctgz archive format
 .SH SYNOPSIS
 .nf
-\fBuse arctgz::{init, load_config, save_config, ArctgzConfig, ArctgzError};\fP
+\fBuse arctgz::{\fP
+\fB    init, load_config, save_config, compile, extract,\fP
+\fB    ArctgzConfig, ArctgzManifest, FileEntry, ArctgzError\fP
+\fB};\fP
 \fBuse std::path::Path;\fP
 
 \fBfn init(project_path: &Path, force: bool) -> Result<(), ArctgzError>;\fP
 \fBfn load_config(project_path: &Path) -> Result<ArctgzConfig, ArctgzError>;\fP
 \fBfn save_config(project_path: &Path, config: &ArctgzConfig) -> Result<(), ArctgzError>;\fP
+\fBfn compile(\fP
+\fB    project_path: &Path,\fP
+\fB    output_dir: Option<&Path>,\fP
+\fB    force: bool\fP
+\fB) -> Result<PathBuf, ArctgzError>;\fP
+\fBfn extract(\fP
+\fB    archive_path: &Path,\fP
+\fB    output_dir: &Path,\fP
+\fB    force: bool\fP
+\fB) -> Result<(), ArctgzError>;\fP
 
 \fBstruct ArctgzConfig {\fP
     \fBpub name:    String,\fP
@@ -16,15 +29,24 @@ arctgz \- safety-first project initialisation and configuration management libra
     \fBpub include: Vec<String>,\fP
 \fB}\fP
 
-\fBimpl ArctgzConfig {\fP
-    \fBpub fn validate(&self) -> Result<(), ArctgzError>;\fP
+\fBstruct ArctgzManifest {\fP
+    \fBpub name:    String,\fP
+    \fBpub version: String,\fP
+    \fBpub created: DateTime<Utc>,\fP
+    \fBpub files:   BTreeMap<String, FileEntry>,\fP
+\fB}\fP
+
+\fBstruct FileEntry {\fP
+    \fBpub size:   u64,\fP
+    \fBpub sha512: String,\fP
 \fB}\fP
 
 \fBenum ArctgzError { ... }\fP
 .fi
 .SH DESCRIPTION
-The arctgz library provides a safe, cross-platform API for initialising and managing arctgz project directories.
-It enforces path confinement, validates metadata before touching the filesystem, and performs atomic file operations to prevent corruption and TOCTOU races.
+The arctgz library provides a safe, cross-platform API for the full lifecycle of an arctgz project: scaffolding, configuration, compilation into a compressed archive, and verified extraction.
+.PP
+All operations enforce strict path confinement, validate metadata before touching the filesystem, and use atomic file operations to prevent corruption and TOCTOU (time-of-check to time-of-use) races.
 .PP
 The core functionality includes:
 .IP \(bu 2
@@ -33,9 +55,26 @@ The core functionality includes:
 \fBload_config\fP() \(en read and validate an existing project configuration.
 .IP \(bu
 \fBsave_config\fP() \(en atomically write a validated configuration back to disk.
+.IP \(bu
+\fBcompile\fP() \(en bundle the project files and configuration into a signed (SHA-512) compressed archive.
+.IP \(bu
+\fBextract\fP() \(en unpack an archive, verifying every file's integrity against the embedded manifest and preventing path traversal attacks.
 .PP
 All paths are resolved with \fBstd::fs::canonicalize\fP() (equivalent to \fBrealpath\fP(3)), so symbolic links are followed during the home-directory confinement check.
 The library is fully tested on Linux, macOS, and Windows.
+.SH INSTALLATION
+This man page can be installed system-wide using the provided installer script:
+.PP
+.nf
+\fBcurl -fsSL https://raw.githubusercontent.com/mroczect/arctgz/master/install-manpage.sh | bash\fP
+.fi
+.PP
+The script places \fBarctgz.7\fP into \fB/usr/local/share/man/man7/\fP and updates the man database.
+To uninstall, run:
+.PP
+.nf
+\fBcurl -fsSL https://raw.githubusercontent.com/mroczect/arctgz/master/install-manpage.sh | bash -s -- uninstall\fP
+.fi
 .SH FUNCTIONS
 .TP
 \fBinit\fP(\fIproject_path\fP, \fIforce\fP)
@@ -122,6 +161,87 @@ Return value:
 \fBOk(())\fP on success, or an \fBArctgzError\fP (\fBConfigValidation\fP, \fBConfigSaveError\fP, or \fBJson\fP).
 .RE
 .RE
+.TP
+\fBcompile\fP(\fIproject_path\fP, \fIoutput_dir\fP, \fIforce\fP)
+.RS
+Compiles the project into a compressed, integrity-verified arctgz archive (\fB.artgz\fP).
+.PP
+The function:
+.IP \(bu 2
+Loads the project configuration via \fBload_config\fP().
+.IP \(bu
+Collects the \fBarctgz.init\fP file and all files listed in the \fBinclude\fP array, recursively adding directories while rejecting symbolic links.
+.IP \(bu
+Computes a SHA-512 hash for every file and records size + hash in an \fBArctgzManifest\fP.
+.IP \(bu
+Creates a gzip-compressed tar archive containing the files and the \fBmanifest.json\fP entry.
+.IP \(bu
+Writes the archive atomically via a temporary file and rename.
+.PP
+Arguments:
+.RS
+.TP
+\fIproject_path\fP
+Path to the project root.
+.TP
+\fIoutput_dir\fP
+Optional output directory.
+If \fBNone\fP, the archive is placed in \fBproject_path/dist/\fP.
+.TP
+\fIforce\fP
+If \fBtrue\fP, overwrite an existing archive; otherwise fail if the archive already exists.
+.RE
+.PP
+Return value:
+.RS
+\fBOk(PathBuf)\fP containing the full path to the created archive, or an \fBArctgzError\fP (including \fBIncludeFileNotFound\fP, \fBSymlinkNotAllowed\fP, or \fBIo\fP for an already-existing archive when \fBforce\fP is \fBfalse\fP).
+.RE
+.PP
+Safety:
+.RS
+.IP \(bu 2
+Symlinks are rejected to prevent reference leaks outside the project.
+.IP \(bu
+The entire archive is written atomically; a crash mid-write leaves no partial archive.
+.RE
+.RE
+.TP
+\fBextract\fP(\fIarchive_path\fP, \fIoutput_dir\fP, \fIforce\fP)
+.RS
+Extracts a previously compiled arctgz archive, verifying the integrity of every file and guarding against path traversal attacks.
+.PP
+The function:
+.IP \(bu 2
+Opens and decompresses the archive.
+.IP \(bu
+Locates the embedded \fBmanifest.json\fP and deserialises it.
+.IP \(bu
+Checks that every file path in the archive is relative and does not contain \fB..\fP (parent directory) components; rejects absolute paths.
+.IP \(bu
+Verifies that all files listed in the manifest are present in the archive and vice versa.
+.IP \(bu
+Recomputes the SHA-512 hash of each file and compares it to the manifest entry; a mismatch aborts with \fBChecksumMismatch\fP.
+.IP \(bu
+Writes files to \fIoutput_dir\fP, creating subdirectories as needed, and refusing to overwrite existing files unless \fBforce\fP is \fBtrue\fP.
+.PP
+Arguments:
+.RS
+.TP
+\fIarchive_path\fP
+Path to the \fB.artgz\fP archive.
+.TP
+\fIoutput_dir\fP
+Destination directory; will be created if it does not exist.
+.TP
+\fIforce\fP
+If \fBtrue\fP, overwrite existing files; otherwise abort on conflict.
+.RE
+.PP
+Return value:
+.RS
+\fBOk(())\fP on success, or an \fBArctgzError\fP (\fBManifestNotFound\fP, \fBChecksumMismatch\fP, \fBExtractError\fP for unsafe paths, or \fBIo\fP for file conflicts).
+.RE
+.RE
 .SH TYPES
 .TP
 \fBArctgzConfig\fP
@@ -150,6 +270,42 @@ Returns \fBOk(())\fP or an \fBArctgzError::ConfigValidation\fP with a human-read
 .PP
 The struct is serialised/deserialised with \fB#[serde(deny_unknown_fields)]\fP, so unknown JSON keys in the configuration file will cause a deserialisation error.
 .TP
+\fBArctgzManifest\fP
+Embedded inside every compiled archive as \fBmanifest.json\fP.
+.RS
+.PP
+Fields:
+.RS
+.TP
+\fBname\fP
+Project name (copied from config).
+.TP
+\fBversion\fP
+Project version (copied from config).
+.TP
+\fBcreated\fP
+UTC timestamp of archive creation (\fBchrono::DateTime<Utc>\fP).
+.TP
+\fBfiles\fP
+A \fBBTreeMap\fP mapping archived paths (relative strings) to \fBFileEntry\fP records.
+.RE
+.RE
+.TP
+\fBFileEntry\fP
+Metadata for a single file in the archive.
+.RS
+.PP
+Fields:
+.RS
+.TP
+\fBsize\fP
+File size in bytes.
+.TP
+\fBsha512\fP
+Hexadecimal string of the file's SHA-512 hash.
+.RE
+.RE
+.TP
 \fBArctgzError\fP
 An enumeration covering all failure cases.
 Each variant holds a descriptive message (or source error) to aid debugging.
@@ -158,7 +314,7 @@ Variants:
 .RS
 .TP
 \fBIo(std::io::Error)\fP
-Filesystem I/O error (e.g., creating directories, writing files).
+Filesystem I/O error (e.g., creating directories, writing files, archive already exists).
 .TP
 \fBJson(serde_json::Error)\fP
 JSON serialisation or deserialisation failure.
@@ -186,6 +342,22 @@ A configuration validation rule failed (e.g., invalid name, version, or include)
 .TP
 \fBConfigSaveError(String)\fP
 \fBsave_config\fP() failed during the write or rename step.
+.TP
+\fBSymlinkNotAllowed(String)\fP
+A symbolic link was encountered during archive compilation; symlinks are forbidden.
+.TP
+\fBIncludeFileNotFound(String)\fP
+A file listed in the \fBinclude\fP array does not exist on disk during compilation.
+.TP
+\fBManifestNotFound\fP
+The archive being extracted does not contain a \fBmanifest.json\fP entry.
+.TP
+\fBChecksumMismatch(String, String, String)\fP
+A file's actual SHA-512 hash does not match the one recorded in the manifest.
+The three fields are: file path, expected hash, actual hash.
+.TP
+\fBExtractError(String)\fP
+Generic extraction failure (unsafe path, missing file, etc.).
 .RE
 .RE
 .SH EXAMPLE
@@ -205,8 +377,8 @@ A configuration validation rule failed (e.g., invalid name, version, or include)
 After running the above, the directory looks like:
 .nf
 \fBmy-project/\fP
-\fB\(a`-- arctgz.init\fP
-\fB\(a`-- include/\fP
+\fB|-- arctgz.init\fP
+\fB\`-- include/\fP
 .fi
 .SS Editing configuration
 .nf
@@ -220,6 +392,17 @@ After running the above, the directory looks like:
     \fBOk(())\fP
 \fB}\fP
 .fi
+.SS Compiling and extracting
+.nf
+\fBuse arctgz::{compile, extract};\fP
+
+\fBfn roundtrip(project: &std::path::Path) -> Result<(), arctgz::ArctgzError> {\fP
+    \fBlet archive = compile(project, None, false)?;\fP
+    \fBlet out_dir = project.parent().unwrap().join("output");\fP
+    \fBextract(&archive, &out_dir, false)?;\fP
+    \fBOk(())\fP
+\fB}\fP
+.fi
 .SH FILES
 .TP
 \fBarctgz.init\fP
@@ -230,6 +413,12 @@ The library never truncates an existing file unless explicitly overwritten via \
 \fBinclude/\fP
 An empty directory created during initialisation.
 It is intended to hold resource files for later compilation/archiving.
+.TP
+\fBdist/<name>-<version>.artgz\fP
+Default output location for compiled archives (when \fIoutput_dir\fP is \fBNone\fP).
+.TP
+\fBmanifest.json\fP
+Embedded inside every \fB.artgz\fP archive; contains the project metadata and integrity records.
 .SH ENVIRONMENT
 .TP
 \fBHOME\fP (Unix) / \fBUSERPROFILE\fP (Windows)
@@ -238,14 +427,21 @@ If the variable is not set, a platform-specific fallback is attempted.
 If no home directory can be determined, \fBinit\fP() will fail with \fBPathNotAllowed\fP for any path (even relative ones) because confinement cannot be verified.
 .SH SECURITY
 .IP \(bu 2
-Path confinement: only paths inside the canonicalised home directory are allowed.
+Path confinement: only paths inside the canonicalised home directory are allowed for initialisation.
 Symlink traversal is fully mitigated by canonicalising both the project path and the home directory.
 .IP \(bu
 No side effects before validation: \fBinit\fP() resolves the path and performs all security checks before creating any directories.
 Thus, even a failed call with a path outside the home directory will not leave unwanted directories on disk.
 .IP \(bu
 Atomic configuration writes: the use of \fBcreate_new(true)\fP for \fBinit\fP() prevents TOCTOU attacks when creating the initial config.
-\fBsave_config\fP() writes to a temporary file and renames, ensuring the configuration file is never left in an incomplete state.
+\fBsave_config\fP() and \fBcompile\fP() write to a temporary file and rename, ensuring the target file is never left in an incomplete state.
+.IP \(bu
+Archive integrity: every file in the archive is hashed with SHA-512.
+The manifest is embedded and verified during extraction; any mismatch aborts with \fBChecksumMismatch\fP.
+.IP \(bu
+Path traversal prevention: \fBextract\fP() rejects any archived path that is absolute or contains \fB..\fP components, preventing zip-slip attacks.
+.IP \(bu
+Symlink rejection: \fBcompile\fP() refuses to include symbolic links, ensuring archives contain only regular files and directories.
 .IP \(bu
 Input validation: configuration fields are strictly validated.
 Unknown JSON keys are rejected, preventing accidental or malicious settings from entering the project metadata.
@@ -254,21 +450,25 @@ The library is intended to be used as a building block for higher-level tools.
 It does not impose any locking mechanism; concurrent calls on the same directory may race (see \fBTOCTOU\fP considerations in the security section).
 Users should serialise access when operating on the same project from multiple processes or threads.
 .SH VERSION
-arctgz 0.3.0 \(en project initialisation and configuration management are implemented.
-Future releases will introduce archive compilation, verification, and extraction.
+arctgz 0.4.0 \(en full project lifecycle: initialisation, configuration management, archive compilation with SHA-512 integrity, and verified extraction.
+Future releases may add cryptographic signing and post-extraction recipes.
 .SH SEE ALSO
 \fBsemver\fP(7),
 \fBrealpath\fP(3),
 \fBserde_json\fP(5),
-\fBdirs\fP(7)
+\fBdirs\fP(7),
+\fBflate2\fP(7),
+\fBtar\fP(5),
+\fBsha2\fP(7)
 .SH BUGS
 .IP \(bu 2
-The \fBinclude/\fP directory is always created empty; there is no \fBadd\fP command yet.
-Use \fBload_config\fP/\fBsave_config\fP to manage the include list manually.
+The \fBinclude/\fP directory is always created empty; files must be added manually before compilation.
 .IP \(bu
 Concurrent \fBinit\fP calls on the same path are not serialised and may lead to one process failing with \fBAlreadyInitialized\fP while another has already created the directory.
 .IP \(bu
 The library does not clean up the \fBinclude/\fP directory if the configuration write fails halfway through initialisation.
+.IP \(bu
+Archive format does not yet include cryptographic signatures; integrity is based solely on SHA-512 hashes.
 .SH AUTHORS
 The arctgz developers.
 .SH LICENSE
