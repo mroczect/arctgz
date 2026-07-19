@@ -1,7 +1,9 @@
 mod common;
 use common::with_temp_home;
 
-use arctgz::{DeltaOp, compile, diff, extract, init, load_config, patch, save_config, verify};
+use arctgz::{
+    Compression, DeltaOp, compile, diff, extract, init, load_config, patch, save_config, verify,
+};
 use std::fs;
 
 #[test]
@@ -107,5 +109,36 @@ fn delta_delete_file() {
         extract(&patched, &out, false, None).unwrap();
         assert!(out.join("a.txt").exists());
         assert!(!out.join("b.txt").exists());
+    });
+}
+
+#[test]
+fn delta_zstd() {
+    with_temp_home(|home| {
+        let base = home.join("zbase");
+        init(&base, false).unwrap();
+        let mut c = load_config(&base).unwrap();
+        c.compression = Compression::Zstd;
+        c.include = vec!["f.txt".into()];
+        save_config(&base, &c).unwrap();
+        fs::write(base.join("include").join("f.txt"), b"old").unwrap();
+        let ba = compile(&base, None, false, None).unwrap();
+
+        let target = home.join("ztarget");
+        init(&target, false).unwrap();
+        let mut c = load_config(&target).unwrap();
+        c.compression = Compression::Zstd;
+        c.include = vec!["f.txt".into()];
+        save_config(&target, &c).unwrap();
+        fs::write(target.join("include").join("f.txt"), b"new").unwrap();
+        let ta = compile(&target, None, false, None).unwrap();
+
+        let delta = diff(&ba, &ta).unwrap();
+        let patched = home.join("patched_zstd.artgz");
+        patch(&ba, &ta, &delta, &patched, None).unwrap();
+        verify(&patched, None).unwrap();
+        let out = home.join("out");
+        extract(&patched, &out, false, None).unwrap();
+        assert_eq!(fs::read_to_string(out.join("f.txt")).unwrap(), "new");
     });
 }

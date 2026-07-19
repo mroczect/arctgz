@@ -51,6 +51,12 @@ pub fn diff(base_archive: &Path, target_archive: &Path) -> Result<ArctgzDelta, A
         if IGNORE_PATHS.contains(&path.as_str()) || processed.contains(path.as_str()) {
             continue;
         }
+        if base_manifest.files[path].is_dir {
+            let prefix = format!("{}/", path);
+            if target_manifest.files.keys().any(|p| p.starts_with(&prefix)) {
+                continue;
+            }
+        }
         ops.push(DeltaOp::Delete { path: path.clone() });
     }
 
