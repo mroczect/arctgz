@@ -32,7 +32,6 @@ jobs:
 
       - name: Download latest RawSSG binary
         run: |
-          # Ambil tag rilis terbaru dari repositori rawssg
           TAG=$(curl -s https://api.github.com/repos/mroczect/rawssg/releases/latest | jq -r .tag_name)
           echo "Latest RawSSG release: $TAG"
           curl -fsSL "https://github.com/mroczect/rawssg/releases/download/$TAG/rawssg-ubuntu-latest.tar.gz" -o rawssg.tar.gz
@@ -50,17 +49,56 @@ jobs:
           fi
           cat config.yaml
 
-      - name: Build documentation site
+      - name: Build documentation site (RawSSG)
         working-directory: docs
         run: rawssg compile
 
       - name: Build Rust documentation (cargo doc)
         run: cargo doc --no-deps --document-private-items
 
+      - name: Debug – list cargo doc output
+        run: |
+          echo "Contents of target/doc:"
+          ls -la target/doc/
+          echo "Number of files:"
+          find target/doc -type f | wc -l
+
+      - name: Remove problematic .lock file
+        run: rm -f target/doc/.lock
+
+      - name: Fix permissions for cargo doc
+        run: |
+          find target/doc -type f -exec chmod 644 {} \;
+          find target/doc -type d -exec chmod 755 {} \;
+
       - name: Copy cargo doc to dist directory
         run: |
           mkdir -p docs/dist/cargo-doc
           cp -r target/doc/* docs/dist/cargo-doc/
+
+      - name: Create redirect from cargo-doc/index.html to crate root
+        run: |
+          CRATE_NAME=$(grep '^name =' Cargo.toml | head -1 | cut -d '"' -f2)
+          cat > docs/dist/cargo-doc/index.html <<EOF
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta http-equiv="refresh" content="0; url=${CRATE_NAME}/index.html" />
+            </head>
+            <body>
+              <p>Redirecting to <a href="${CRATE_NAME}/index.html">cargo doc</a>...</p>
+            </body>
+          </html>
+          EOF
+
+      - name: Verify cargo doc was copied
+        run: |
+          echo "Contents of docs/dist/cargo-doc:"
+          ls -la docs/dist/cargo-doc/
+          echo "Number of files:"
+          find docs/dist/cargo-doc -type f | wc -l
+          echo "Index file exists:"
+          test -f docs/dist/cargo-doc/index.html && echo "✅ index.html present" || echo "⚠️ index.html missing"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
