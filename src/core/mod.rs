@@ -4,6 +4,7 @@ pub mod config;
 pub mod extract;
 pub mod init;
 pub mod recipe;
+pub mod sign;
 pub mod verify;
 
 pub use compile::compile;

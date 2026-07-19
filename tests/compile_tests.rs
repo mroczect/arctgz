@@ -22,7 +22,7 @@ fn compile_uses_include_list() {
         config.include = vec!["hello.txt".into()];
         save_config(&project, &config).unwrap();
 
-        let archive_path = compile(&project, None, false).unwrap();
+        let archive_path = compile(&project, None, false, None).unwrap();
         assert!(archive_path.exists());
 
         let f = fs::File::open(&archive_path).unwrap();
@@ -55,7 +55,7 @@ fn compile_rejects_symlink() {
         config.include = vec!["link.txt".into()];
         save_config(&project, &config).unwrap();
 
-        let res = compile(&project, None, false);
+        let res = compile(&project, None, false, None);
         #[cfg(unix)]
         assert!(matches!(res, Err(ArctgzError::SymlinkNotAllowed(_))));
         #[cfg(not(unix))]
@@ -68,10 +68,10 @@ fn compile_force_overwrites_existing_archive() {
     with_temp_home(|home| {
         let project = home.join("force_compile");
         init(&project, false).unwrap();
-        compile(&project, None, false).unwrap();
-        let res = compile(&project, None, false);
+        compile(&project, None, false, None).unwrap();
+        let res = compile(&project, None, false, None);
         assert!(res.is_err());
-        let path = compile(&project, None, true).unwrap();
+        let path = compile(&project, None, true, None).unwrap();
         assert!(path.exists());
     });
 }
@@ -84,7 +84,7 @@ fn compile_missing_include_file_errors() {
         let mut config = load_config(&project).unwrap();
         config.include = vec!["nonexistent.txt".into()];
         save_config(&project, &config).unwrap();
-        let res = compile(&project, None, false);
+        let res = compile(&project, None, false, None);
         assert!(matches!(res, Err(ArctgzError::IncludeFileNotFound(_))));
     });
 }

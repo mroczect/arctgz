@@ -15,13 +15,13 @@ fn compile_zstd_and_extract() {
         config.compression = Compression::Zstd;
         save_config(&project, &config).unwrap();
 
-        let archive = compile(&project, None, false).unwrap();
+        let archive = compile(&project, None, false, None).unwrap();
         assert!(archive.exists());
 
-        verify(&archive).unwrap();
+        verify(&archive, None).unwrap();
 
         let out_dir = home.join("out");
-        extract(&archive, &out_dir, false).unwrap();
+        extract(&archive, &out_dir, false, None).unwrap();
         let content = fs::read_to_string(out_dir.join("hello.txt")).unwrap();
         assert_eq!(content, "zstd world");
     });
@@ -35,8 +35,8 @@ fn verify_zstd_archive() {
         let mut config = load_config(&project).unwrap();
         config.compression = Compression::Zstd;
         save_config(&project, &config).unwrap();
-        let archive = compile(&project, None, false).unwrap();
-        verify(&archive).unwrap();
+        let archive = compile(&project, None, false, None).unwrap();
+        verify(&archive, None).unwrap();
     });
 }
 
@@ -50,7 +50,7 @@ fn extract_zstd_checksum_mismatch() {
         config.include = vec!["file.bin".into()];
         config.compression = Compression::Zstd;
         save_config(&project, &config).unwrap();
-        let _archive = compile(&project, None, false).unwrap();
+        let _archive = compile(&project, None, false, None).unwrap();
 
         let fake_archive = home.join("fake_zstd.artgz");
         {
@@ -82,7 +82,7 @@ fn extract_zstd_checksum_mismatch() {
         }
 
         let out_dir = home.join("out");
-        let res = extract(&fake_archive, &out_dir, false);
+        let res = extract(&fake_archive, &out_dir, false, None);
         assert!(matches!(res, Err(ArctgzError::ChecksumMismatch(_, _, _))));
     });
 }

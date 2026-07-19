@@ -87,6 +87,7 @@ impl ArctgzConfig {
         Ok(())
     }
 }
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ArctgzManifest {
     pub name: String,
@@ -95,6 +96,8 @@ pub struct ArctgzManifest {
     #[serde(default)]
     pub compression: Compression,
     pub files: std::collections::BTreeMap<String, FileEntry>,
+    #[serde(default)]
+    pub signature: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
