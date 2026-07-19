@@ -2,33 +2,20 @@ use crate::handler::ArctgzError;
 use sha2::{Digest, Sha512};
 use std::collections::HashSet;
 use std::io::Read;
-use std::path::{Component, Path};
+use std::path::Path;
 
 pub fn verify(archive_path: &Path) -> Result<(), ArctgzError> {
-    let raw = std::fs::read(archive_path)?;
-    let (manifest, reader) = crate::core::archive::open_archive(&raw)?;
-
-    let mut archive2 = tar::Archive::new(reader);
+    let (manifest, reader) = crate::core::archive::open_archive_file(archive_path)?;
+    let mut archive = tar::Archive::new(reader);
     let mut files_found: HashSet<String> = HashSet::new();
+    let mut buf = [0u8; 8192];
 
-    for entry in archive2.entries()? {
+    for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?.to_string_lossy().into_owned();
 
-        if path == "manifest.json" {
-            continue;
-        }
-
-        let p = Path::new(&path);
-        if p.is_absolute()
-            || path.is_empty()
-            || path == "."
-            || p.components().any(|c| c == Component::ParentDir)
-        {
-            return Err(ArctgzError::VerifyError(format!(
-                "Unsafe or empty path in archive: {}",
-                path
-            )));
+        if !crate::core::archive::is_safe_archive_path(&path) {
+            return Err(ArctgzError::VerifyError(format!("Unsafe path: {}", path)));
         }
 
         let expected = manifest
@@ -36,20 +23,26 @@ pub fn verify(archive_path: &Path) -> Result<(), ArctgzError> {
             .get(&path)
             .ok_or_else(|| ArctgzError::VerifyError(format!("File '{}' not in manifest", path)))?;
 
-        let mut content = Vec::new();
-        entry.read_to_end(&mut content)?;
-        let actual_size = content.len() as u64;
-        if actual_size != expected.size {
+        let mut hasher = Sha512::new();
+        let mut size: u64 = 0;
+        loop {
+            let n = entry.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+            size += n as u64;
+        }
+
+        if size != expected.size {
             return Err(ArctgzError::ChecksumMismatch(
                 path,
-                format!(
-                    "size mismatch (expected {}, got {})",
-                    expected.size, actual_size
-                ),
+                format!("size mismatch (expected {}, got {})", expected.size, size),
                 String::new(),
             ));
         }
-        let actual_hash = hex::encode(Sha512::digest(&content));
+
+        let actual_hash = hex::encode(hasher.finalize());
         if actual_hash != expected.sha512 {
             return Err(ArctgzError::ChecksumMismatch(
                 path,
