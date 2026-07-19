@@ -31,7 +31,7 @@ pub fn detect_compression(raw: &[u8]) -> Result<Compression, ArctgzError> {
     )))
 }
 
-fn make_reader_from_file(
+pub fn make_reader_from_file(
     file: &File,
     compression: &Compression,
 ) -> Result<Box<dyn Read>, ArctgzError> {
@@ -47,9 +47,7 @@ fn make_reader_from_file(
     }
 }
 
-pub fn open_archive_file(
-    archive_path: &Path,
-) -> Result<(ArctgzManifest, Box<dyn Read>), ArctgzError> {
+pub fn read_manifest(archive_path: &Path) -> Result<(ArctgzManifest, Compression), ArctgzError> {
     let mut file = File::open(archive_path)?;
 
     let mut magic = [0u8; 4];
@@ -57,21 +55,16 @@ pub fn open_archive_file(
     let compression = detect_compression(&magic)?;
     file.seek(SeekFrom::Start(0))?;
 
-    let decoder1 = make_reader_from_file(&file, &compression)?;
-    let mut archive1 = tar::Archive::new(decoder1);
-    let mut manifest_bytes: Option<Vec<u8>> = None;
-    for entry in archive1.entries()? {
+    let decoder = make_reader_from_file(&file, &compression)?;
+    let mut archive = tar::Archive::new(decoder);
+    for entry in archive.entries()? {
         let mut entry = entry?;
         if entry.path()?.to_string_lossy() == "manifest.json" {
             let mut buf = Vec::new();
             entry.read_to_end(&mut buf)?;
-            manifest_bytes = Some(buf);
-            break;
+            let manifest: ArctgzManifest = serde_json::from_slice(&buf)?;
+            return Ok((manifest, compression));
         }
     }
-    let manifest_json = manifest_bytes.ok_or(ArctgzError::ManifestNotFound)?;
-    let manifest: ArctgzManifest = serde_json::from_slice(&manifest_json)?;
-
-    let remaining = archive1.into_inner();
-    Ok((manifest, remaining))
+    Err(ArctgzError::ManifestNotFound)
 }
