@@ -62,7 +62,7 @@ pub fn diff(base_archive: &Path, target_archive: &Path) -> Result<ArctgzDelta, A
 
 pub fn patch(
     base_archive: &Path,
-    target_archive: &Path,   
+    target_archive: &Path,
     delta: &ArctgzDelta,
     output_path: &Path,
     private_key: Option<&[u8]>,
@@ -75,6 +75,8 @@ pub fn patch(
             delta.base_manifest_hash, base_hash
         )));
     }
+
+    let (target_manifest, _) = crate::core::archive::read_manifest(target_archive)?;
 
     let mut new_files: BTreeMap<String, FileEntry> = BTreeMap::new();
     let mut delete_set: HashSet<String> = HashSet::new();
@@ -111,17 +113,16 @@ pub fn patch(
 
     for (path, entry) in &base_manifest.files {
         if IGNORE_PATHS.contains(&path.as_str()) {
-            continue;   
+            continue;
         }
         if !delete_set.contains(path) && !modify_set.contains(path) {
             new_files.insert(path.clone(), entry.clone());
         }
     }
 
-    let (target_manifest, _) = crate::core::archive::read_manifest(target_archive)?;
-    for (path, entry) in &target_manifest.files {
-        if IGNORE_PATHS.contains(&path.as_str()) {
-            new_files.insert(path.clone(), entry.clone());
+    for path in IGNORE_PATHS {
+        if let Some(entry) = target_manifest.files.get(*path) {
+            new_files.insert(path.to_string(), entry.clone());
         }
     }
 
@@ -143,7 +144,7 @@ pub fn patch(
         &new_manifest,
         &base_manifest,
         base_archive,
-        target_archive,   
+        target_archive,
         delta,
     )?;
 
@@ -257,6 +258,10 @@ fn write_patched_tar<W: Write>(
             continue;
         }
 
+        if IGNORE_PATHS.contains(&path.as_str()) {
+            continue;
+        }
+
         let expected = base_manifest.files.get(&path).unwrap();
         let mut data = Vec::new();
         entry.read_to_end(&mut data)?;
@@ -278,11 +283,11 @@ fn write_patched_tar<W: Write>(
         let mut entry = entry?;
         let path = entry.path()?.to_string_lossy().into_owned();
 
-        if !modify_add_set.contains(&path) && path != "manifest.json" {
+        if path == "manifest.json" {
             continue;
         }
 
-        if path == "manifest.json" {
+        if !modify_add_set.contains(&path) && !IGNORE_PATHS.contains(&path.as_str()) {
             continue;
         }
 
