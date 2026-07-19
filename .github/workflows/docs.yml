@@ -4,8 +4,8 @@ on:
   push:
     branches: [master]
     paths:
-      - 'docs/**'
-      - '.github/workflows/docs.yml'
+      - "docs/**"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
@@ -53,6 +53,14 @@ jobs:
       - name: Build documentation site
         working-directory: docs
         run: rawssg compile
+
+      - name: Build Rust documentation (cargo doc)
+        run: cargo doc --no-deps --document-private-items
+
+      - name: Copy cargo doc to dist directory
+        run: |
+          mkdir -p docs/dist/cargo-doc
+          cp -r target/doc/* docs/dist/cargo-doc/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
