@@ -69,6 +69,7 @@ fn init_empty_path_errors() {
     });
 }
 
+#[cfg(unix)]
 #[test]
 fn init_outside_home_existing_errors() {
     let tmp = TempDir::new().unwrap();
@@ -89,6 +90,7 @@ fn init_outside_home_existing_errors() {
     });
 }
 
+#[cfg(unix)]
 #[test]
 fn init_outside_home_nonexistent_no_side_effect() {
     let tmp = TempDir::new().unwrap();
