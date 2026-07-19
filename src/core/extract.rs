@@ -54,6 +54,7 @@ fn extract_inner(
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?.to_string_lossy().into_owned();
+        let entry_type = entry.header().entry_type();
 
         if path == "manifest.json" {
             let mut sink = [0u8; 8192];
@@ -69,13 +70,29 @@ fn extract_inner(
             ArctgzError::ExtractError(format!("File '{}' in archive not listed in manifest", path))
         })?;
 
-        let dest = output_dir.join(&path);
-
-        if expected.is_dir {
-            fs::create_dir_all(&dest)?;
-            extracted_files.insert(path);
-            continue;
+        match (expected.is_dir, entry_type) {
+            (true, tar::EntryType::Directory) => {
+                let dest = output_dir.join(&path);
+                fs::create_dir_all(&dest)?;
+                extracted_files.insert(path);
+                continue;
+            }
+            (true, _) => {
+                return Err(ArctgzError::ExtractError(format!(
+                    "Expected directory but got {:?}: {}",
+                    entry_type, path
+                )));
+            }
+            (false, tar::EntryType::Directory) => {
+                return Err(ArctgzError::ExtractError(format!(
+                    "Expected file but got directory: {}",
+                    path
+                )));
+            }
+            (false, _) => {}
         }
+
+        let dest = output_dir.join(&path);
 
         if dest.exists() && !force {
             return Err(ArctgzError::Io(std::io::Error::new(

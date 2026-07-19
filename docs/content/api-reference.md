@@ -5,18 +5,24 @@ desc: "Complete reference of all public functions, types, and error variants in 
 
 # API Reference
 
-All public items live directly under the `arctgz` crate root.  
-Import what you need:
+All public items are exported directly from the crate root.  
+Import them with:
 
 ```rust
-use arctgz::{init, compile, extract, verify, diff, patch, /* ... */};
+use arctgz::{
+    init, compile, extract, verify, diff, patch,
+    load_config, save_config, load_recipe, extract_recipe, execute_recipe,
+    ArctgzConfig, ArctgzManifest, ArctgzRecipe, ArctgzDelta,
+    FileEntry, RecipeStep, Compression, Encryption, DeltaOp,
+    ArctgzError,
+};
 ```
 
 ---
 
 ## Functions
 
-### Initialisation & Configuration
+### Project Initialization & Configuration
 
 #### `init`
 
@@ -29,8 +35,16 @@ Creates a new arctgz project at `project_path`.
 - Creates the directory (and parents) if needed.
 - Creates an empty `include/` subdirectory.
 - Writes a default `arctgz.init` configuration file atomically.
+- **Security:** the canonicalized path must lie under the user's home directory.
 - **`force`** – if `true`, skips the non‑empty directory check. An existing `arctgz.init` still causes `AlreadyInitialized`.
-- **Security** – the canonicalised path must lie under the user's home directory. No filesystem changes occur before validation.
+
+**Errors:**
+
+- `InvalidPath` – empty path.
+- `PathNotAllowed` – path outside home directory.
+- `DirectoryNotEmpty` – directory not empty and `force` is `false`.
+- `AlreadyInitialized` – `arctgz.init` already exists.
+- `Io` – filesystem errors.
 
 ---
 
@@ -40,8 +54,13 @@ Creates a new arctgz project at `project_path`.
 pub fn load_config(project_path: &Path) -> Result<ArctgzConfig, ArctgzError>
 ```
 
-Reads and validates the `arctgz.init` file from a project directory.  
-Errors: `ConfigNotFound`, `ConfigLoadError`, `ConfigValidation`.
+Reads and validates the `arctgz.init` file from a project directory.
+
+**Errors:**
+
+- `ConfigNotFound` – file does not exist.
+- `ConfigLoadError` – read error or invalid JSON.
+- `ConfigValidation` – invalid content.
 
 ---
 
@@ -52,7 +71,9 @@ pub fn save_config(project_path: &Path, config: &ArctgzConfig) -> Result<(), Arc
 ```
 
 Atomically writes a validated `ArctgzConfig` back to `arctgz.init` (temp file + rename).  
-Automatically calls `config.validate()` before writing.
+Automatically validates the config before writing.
+
+**Errors:** same as `load_config` plus `ConfigSaveError` on write/rename failure.
 
 ---
 
@@ -63,26 +84,48 @@ Automatically calls `config.validate()` before writing.
 ```rust
 pub fn compile(
     project_path: &Path,
-    output_path: Option<&Path>,   // defaults to project_path/archive.artgz
+    output_path: Option<&Path>,
     force: bool,
-    private_key: Option<&[u8]>,   // 32‑byte Ed25519 secret key
-    password: Option<&str>,       // required if encryption is enabled
+    private_key: Option<&[u8]>,
+    password: Option<&str>,
 ) -> Result<PathBuf, ArctgzError>
 ```
 
-Compiles the project into an **`.artgz`** archive.
+Compiles the project into an `.artgz` archive.
 
-**Behaviour**:
+**Behaviour:**
 
-- Loads configuration.
-- Collects files from `include/` using **glob patterns**. Empty directories matching patterns are preserved.
-- Recursively walks `include/`; symbolic links are rejected.
-- Hashes every file in **parallel** (SHA‑512) with `rayon`.
+- Loads configuration from `project_path/arctgz.init`.
+- Collects files from `project_path/include/` using **glob patterns** defined in `include`.
+- Preserves empty directories that match a pattern.
+- Rejects symbolic links (returns `SymlinkNotAllowed`).
+- Computes SHA‑512 hashes of all files in **parallel** (using `rayon`).
 - Builds a `manifest.json` with size, hash, and directory flags.
-- Optionally signs the manifest with an Ed25519 private key.
-- Compresses the tar stream (gzip or zstd).
-- If `config.encryption == Aes256Gcm`, encrypts the whole archive after compression.
-- Writes atomically via a temporary file.
+- Optionally signs the manifest with an Ed25519 private key (32 bytes).
+- Compresses the tar stream (gzip or zstd, according to configuration).
+- If `config.encryption == Encryption::Aes256Gcm`, encrypts the whole archive with AES‑256‑GCM using the provided password.
+- Writes the final file atomically via a temporary file.
+
+**Parameters:**
+
+- `project_path` – root directory of the project.
+- `output_path` – if `Some`, the path where the archive will be written; if `None`, defaults to `project_path/archive.artgz`.
+- `force` – if `true`, overwrites an existing output file; otherwise returns `Io(AlreadyExists)`.
+- `private_key` – 32‑byte Ed25519 signing key for signing the manifest; `None` disables signing.
+- `password` – password for encryption (required if `encryption` is set to `Aes256Gcm`; ignored otherwise).
+
+**Returns:** the actual path of the created archive.
+
+**Errors:**
+
+- `ConfigNotFound`, `ConfigLoadError`, `ConfigValidation` – config issues.
+- `Io` – filesystem errors.
+- `SymlinkNotAllowed` – symbolic link in `include/`.
+- `IncludeFileNotFound` – a glob pattern matched no files.
+- `KeyError` – invalid private key length.
+- `EncryptionError` – password missing or encryption failure.
+- `SignatureError` – signing failure (unlikely).
+- `DeltaError` – internal encoding error (should not happen).
 
 ---
 
@@ -93,20 +136,42 @@ pub fn extract(
     archive_path: &Path,
     output_dir: &Path,
     force: bool,
-    public_key: Option<&[u8]>,   // 32‑byte Ed25519 public key
-    password: Option<&str>,      // required if archive is encrypted
+    public_key: Option<&[u8]>,
+    password: Option<&str>,
 ) -> Result<(), ArctgzError>
 ```
 
 Extracts and verifies an archive.
 
-- Auto‑detects compression and encryption.
-- Decrypts on the fly if needed (temporary file).
-- Verifies Ed25519 signature if public key is given.
-- Validates SHA‑512 hashes and sizes against the manifest.
-- Rejects unsafe paths (absolute, `..`, empty, `.`).
-- Removes partially written files on hash mismatch.
-- `force` controls overwriting of existing files.
+**Behaviour:**
+
+- Auto‑detects compression (gzip/zstd) and encryption (by magic bytes).
+- If encrypted, decrypts to a temporary file using the provided password.
+- Verifies the Ed25519 signature if a public key is given.
+- For each file in the archive:
+  - Checks that the path is safe (no absolute, `..`, empty, or `.`).
+  - Compares the actual SHA‑512 hash and size against the manifest.
+  - On mismatch, removes any partially written file and returns an error.
+- If `force` is `true`, overwrites existing files; otherwise returns `Io(AlreadyExists)`.
+- Creates parent directories as needed.
+- Handles directory entries correctly.
+
+**Parameters:**
+
+- `archive_path` – path to the `.artgz` file.
+- `output_dir` – destination directory.
+- `force` – allow overwriting existing files.
+- `public_key` – 32‑byte Ed25519 public key for signature verification; `None` skips verification.
+- `password` – password for decryption; required if the archive is encrypted, otherwise ignored.
+
+**Errors:**
+
+- `ManifestNotFound` – archive does not contain `manifest.json`.
+- `SignatureError` – signature invalid or missing.
+- `EncryptionError` – wrong password or decryption failure.
+- `ChecksumMismatch` – hash or size mismatch.
+- `ExtractError` – unsafe path, directory/file type mismatch, or manifest inconsistency.
+- `Io` – filesystem errors.
 
 ---
 
@@ -120,8 +185,11 @@ pub fn verify(
 ) -> Result<(), ArctgzError>
 ```
 
-Standalone integrity check. Reads the archive and validates everything `extract` does, but writes no files.  
-Useful for pre‑extraction validation or automated checks.
+Standalone integrity check. Reads the archive and performs all the same validations as `extract`, but writes no files.
+
+**Parameters:** same as `extract` (without `force` and `output_dir`).
+
+**Errors:** same as `extract` (excluding `Io` related to file creation, but still may have `Io` for reading).
 
 ---
 
@@ -133,9 +201,23 @@ Useful for pre‑extraction validation or automated checks.
 pub fn diff(base_archive: &Path, target_archive: &Path) -> Result<ArctgzDelta, ArctgzError>
 ```
 
-Computes a binary delta between two archives.  
-Ignores metadata files (`arctgz.init`, `recipe.json`).  
-Returns an `ArctgzDelta` with `Add`, `Modify`, and `Delete` operations.
+Computes a binary delta between two archives.
+
+**Behaviour:**
+
+- Reads both manifests.
+- Compares file entries by path, size, hash, and directory flag.
+- Generates `Add`, `Modify`, or `Delete` operations.
+- Ignores metadata files (`recipe.json`; `arctgz.init` is **not** ignored because it can change between versions).
+
+**Parameters:**
+
+- `base_archive` – path to the base archive.
+- `target_archive` – path to the newer archive.
+
+**Returns:** an `ArctgzDelta` containing the list of operations.
+
+**Errors:** same as `read_manifest` (I/O, JSON, etc.).
 
 ---
 
@@ -151,9 +233,29 @@ pub fn patch(
 ) -> Result<(), ArctgzError>
 ```
 
-Applies a previously computed delta to the base archive, producing a new archive identical to the original target.  
-Copies unchanged files from base, takes changed files from target.  
-Optionally signs the new manifest.
+Applies a previously computed delta to produce a new archive identical to the target.
+
+**Behaviour:**
+
+- Reads the base archive and the target archive (to copy files from both).
+- Copies unchanged files from the base, changed/added files from the target.
+- Deletes files as specified.
+- Builds a new manifest with the target's metadata.
+- Optionally signs the new manifest.
+- Writes the result atomically.
+
+**Parameters:**
+
+- `base_archive` – path to the base archive.
+- `target_archive` – path to the target archive (used as source for modified/added files).
+- `delta` – the delta returned by `diff`.
+- `output_path` – where to write the patched archive.
+- `private_key` – optional signing key.
+
+**Errors:**
+
+- `DeltaError` – manifest hash mismatch, missing entries, size/hash verification failures.
+- `Io`, `KeyError`, `SignatureError` – as in `compile`.
 
 ---
 
@@ -167,6 +269,10 @@ pub fn load_recipe(project_path: &Path) -> Result<Option<ArctgzRecipe>, ArctgzEr
 
 Loads and validates `recipe.json` from a project directory. Returns `None` if the file is absent.
 
+**Errors:**
+
+- `Io`, `Json`, `RecipeInvalid`.
+
 ---
 
 #### `extract_recipe`
@@ -175,7 +281,12 @@ Loads and validates `recipe.json` from a project directory. Returns `None` if th
 pub fn extract_recipe(archive_path: &Path) -> Result<ArctgzRecipe, ArctgzError>
 ```
 
-Extracts and validates the embedded `recipe.json` from an archive. Handles all compression and encryption transparently.
+Extracts and validates the embedded `recipe.json` from an archive. Handles compression and encryption transparently.
+
+**Errors:**
+
+- `RecipeNotFound` – no `recipe.json` in the archive.
+- `Io`, `Json`, `RecipeInvalid`.
 
 ---
 
@@ -189,9 +300,23 @@ pub fn execute_recipe(
 ) -> Result<(), ArctgzError>
 ```
 
-Runs the steps of a recipe inside `output_dir`.  
-Supported steps: `Copy`, `MkDir`, `Chmod` (Unix only, error on other platforms), `Remove`.  
-All paths are validated against traversal; `force` controls overwriting.
+Runs the steps of a recipe inside `output_dir`.
+
+**Supported steps:**
+
+- `Copy { from, to }` – copies `from` to `to` (both relative to `output_dir`). If `from` is a directory, copies recursively.
+- `MkDir { path }` – creates a directory (and parents).
+- `Chmod { path, mode }` – sets Unix permissions (octal mode). Returns error on non‑Unix platforms.
+- `Remove { path }` – deletes a file or directory (must be empty).
+
+All paths are validated against traversal attacks (`..` and absolute paths are rejected).  
+`force` controls whether existing files/directories are overwritten or cause an error.
+
+**Errors:**
+
+- `RecipeInvalid` – invalid step or path.
+- `RecipeExecutionError` – step failed (e.g., missing source, permission denied).
+- `Io` – filesystem errors.
 
 ---
 
@@ -201,16 +326,28 @@ All paths are validated against traversal; `force` controls overwriting.
 
 ```rust
 pub struct ArctgzConfig {
-    pub name: String,                  // alphanumeric, '-' and '_', max 255
-    pub version: String,               // strict semver
-    pub include: Vec<String>,          // relative glob patterns, max 100
-    pub compression: Compression,      // Gzip (default) or Zstd
-    pub encryption: Encryption,        // None (default) or Aes256Gcm
+    pub name: String,
+    pub version: String,
+    pub include: Vec<String>,
+    pub compression: Compression,
+    pub encryption: Encryption,
 }
 ```
 
-Serialised with `deny_unknown_fields` – unknown keys cause an error.  
-Created by `init()` with defaults; can be modified via `load_config()` / `save_config()`.
+Project configuration. Serialised as JSON with `deny_unknown_fields`.
+
+**Validation:**
+
+- `name` – alphanumeric + `-` and `_`, max 255 chars.
+- `version` – strict semver.
+- `include` – relative glob patterns, max 100, no `..` or absolute paths.
+- `compression` – `Gzip` or `Zstd`.
+- `encryption` – `None` or `Aes256Gcm`.
+
+Default values (created by `init`):  
+`name` = `"untitled"`, `version` = `"0.1.0"`, `include` = `[]`, `compression` = `Gzip`, `encryption` = `None`.
+
+---
 
 ### `ArctgzManifest`
 
@@ -221,11 +358,15 @@ pub struct ArctgzManifest {
     pub created: DateTime<Utc>,
     pub compression: Compression,
     pub files: BTreeMap<String, FileEntry>,
-    pub signature: Option<String>,   // hex‑encoded Ed25519 signature
+    pub signature: Option<String>,
 }
 ```
 
 Embedded in every archive as `manifest.json`.
+
+- `signature` – hex‑encoded Ed25519 signature of the manifest (without the signature field).
+
+---
 
 ### `FileEntry`
 
@@ -237,7 +378,9 @@ pub struct FileEntry {
 }
 ```
 
-Represents a single file or directory entry in the manifest.
+Describes a file or directory entry in the manifest.
+
+---
 
 ### `ArctgzRecipe`
 
@@ -249,7 +392,9 @@ pub struct ArctgzRecipe {
 }
 ```
 
-Serialised with `deny_unknown_fields`.
+Post‑extraction recipe.
+
+---
 
 ### `RecipeStep`
 
@@ -257,30 +402,40 @@ Serialised with `deny_unknown_fields`.
 pub enum RecipeStep {
     Copy   { from: String, to: String },
     MkDir  { path: String },
-    Chmod  { path: String, mode: String },  // octal string, Unix only
+    Chmod  { path: String, mode: String },
     Remove { path: String },
 }
 ```
 
-Tagged with `"action"` in JSON.
+Deserialised with `#[serde(tag = "action")]`.
+
+---
 
 ### `Compression`
 
 ```rust
 pub enum Compression {
-    Gzip, // default
+    Gzip,
     Zstd,
 }
 ```
+
+Default: `Gzip`.
+
+---
 
 ### `Encryption`
 
 ```rust
 pub enum Encryption {
-    None,        // default
+    None,
     Aes256Gcm,
 }
 ```
+
+Default: `None`.
+
+---
 
 ### `ArctgzDelta`
 
@@ -296,6 +451,10 @@ pub struct ArctgzDelta {
 }
 ```
 
+Represents the difference between two archives.
+
+---
+
 ### `DeltaOp`
 
 ```rust
@@ -306,13 +465,15 @@ pub enum DeltaOp {
 }
 ```
 
-Tagged with `"op"` in JSON.
+Serialised with `#[serde(tag = "op")]`.
 
 ---
 
 ## Error Types
 
 ### `ArctgzError`
+
+All possible errors returned by the library.
 
 ```rust
 pub enum ArctgzError {
@@ -342,9 +503,9 @@ pub enum ArctgzError {
 }
 ```
 
-All variants implement `Display` with human‑readable messages.  
-The `?` operator can be used with `std::io::Error` and `serde_json::Error` thanks to `From` implementations.
+Each variant provides a human‑readable description via `Display`.  
+`Io` and `Json` are automatically converted from the underlying error types using `From`.
 
 ---
 
-For practical examples, head to the [Usage](usage.html) page. To understand configuration options, see [Configuration](configuration.html).
+For practical examples, see the [Usage](usage.html) page. To understand configuration, check [Configuration](configuration.html).

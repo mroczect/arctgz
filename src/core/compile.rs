@@ -100,12 +100,15 @@ pub fn compile(
             }
         } else if path.is_file() {
             let rel_str = rel.to_string_lossy();
-            let matched = include_patterns.is_empty()
-                || include_patterns.iter().any(|pat| {
+            let matched = if include_patterns.is_empty() {
+                true
+            } else {
+                include_patterns.iter().any(|pat| {
                     glob::Pattern::new(pat)
                         .map(|p| p.matches(&rel_str))
                         .unwrap_or(false)
-                });
+                })
+            };
             if matched {
                 entries.push((rel.to_path_buf(), path.to_path_buf()));
             }

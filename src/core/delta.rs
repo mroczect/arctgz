@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-const IGNORE_PATHS: &[&str] = &["arctgz.init", "recipe.json"];
+const IGNORE_PATHS: &[&str] = &["recipe.json"];
 
 pub fn diff(base_archive: &Path, target_archive: &Path) -> Result<ArctgzDelta, ArctgzError> {
     let (base_manifest, _) = crate::core::archive::read_manifest(base_archive)?;

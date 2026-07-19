@@ -17,6 +17,8 @@ navbar:
     url: "configuration.html"
   - label: "API Reference"
     url: "api-reference.html"
+  - label: "Cargo Docs"
+    url: "cargo-doc/"
   - label: "License"
     url: "license.html"
 
@@ -31,5 +33,7 @@ sidebar:
     url: "configuration.html"
   - label: "API Reference"
     url: "api-reference.html"
+  - label: "Cargo Docs"
+    url: "cargo-doc/"
   - label: "License"
     url: "license.html"

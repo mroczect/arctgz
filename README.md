@@ -10,7 +10,7 @@ It provides a complete, cross‑platform lifecycle for projects: scaffold, confi
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [API Reference](#api-reference)
-  - [Initialisation &amp; Configuration](#initialisation--configuration)
+  - [Initialisation & Configuration](#initialisation--configuration)
     - [`init`](#init)
     - [`load_config`](#load_config)
     - [`save_config`](#save_config)
@@ -50,14 +50,14 @@ It provides a complete, cross‑platform lifecycle for projects: scaffold, confi
 
 ## Installation
 
-Add the Git dependency to your `Cargo.toml`:
+The library is **not yet published on [crates.io](https://crates.io)**. To use it, add the Git repository as a dependency in your `Cargo.toml`:
 
 ```toml
 [dependencies]
 arctgz = { git = "https://github.com/mroczect/arctgz.git", tag = "v0.8.0" }
 ```
 
-The library is not yet published on crates.io.
+Always pin to a specific tag (like `v0.8.0`) to avoid unexpected breaking changes.
 
 ---
 

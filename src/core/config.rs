@@ -31,6 +31,7 @@ pub fn save_config(project_path: &Path, config: &ArctgzConfig) -> Result<(), Arc
 
     let temp_path = config_path.with_extension("tmp");
     fs::write(&temp_path, &json).map_err(|e| {
+        let _ = fs::remove_file(&temp_path);
         ArctgzError::ConfigSaveError(format!("Failed to write temporary config: {}", e))
     })?;
 
