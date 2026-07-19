@@ -37,6 +37,7 @@ pub enum ArctgzError {
 
     #[error("Include file not found: {0}")]
     IncludeFileNotFound(String),
+
     #[error("Manifest not found in archive")]
     ManifestNotFound,
 
@@ -45,6 +46,7 @@ pub enum ArctgzError {
 
     #[error("Extract error: {0}")]
     ExtractError(String),
+
     #[error("Recipe not found in archive")]
     RecipeNotFound,
 
@@ -56,4 +58,10 @@ pub enum ArctgzError {
 
     #[error("Verification failed: {0}")]
     VerifyError(String),
+
+    #[error("Signature verification failed: {0}")]
+    SignatureError(String),
+
+    #[error("Invalid signing key: {0}")]
+    KeyError(String),
 }
