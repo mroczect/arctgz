@@ -32,16 +32,13 @@ pub fn detect_compression(raw: &[u8]) -> Result<Compression, ArctgzError> {
 }
 
 pub fn make_reader_from_file(
-    file: &File,
+    file: File,
     compression: &Compression,
 ) -> Result<Box<dyn Read>, ArctgzError> {
-    let file_clone = file.try_clone()?;
     match compression {
-        Compression::Gzip => Ok(Box::new(flate2::read::GzDecoder::new(BufReader::new(
-            file_clone,
-        )))),
+        Compression::Gzip => Ok(Box::new(flate2::read::GzDecoder::new(BufReader::new(file)))),
         Compression::Zstd => {
-            let decoder = zstd::stream::Decoder::new(BufReader::new(file_clone))?;
+            let decoder = zstd::stream::Decoder::new(BufReader::new(file))?;
             Ok(Box::new(decoder))
         }
     }
@@ -55,7 +52,7 @@ pub fn read_manifest(archive_path: &Path) -> Result<(ArctgzManifest, Compression
     let compression = detect_compression(&magic)?;
     file.seek(SeekFrom::Start(0))?;
 
-    let decoder = make_reader_from_file(&file, &compression)?;
+    let decoder = make_reader_from_file(file, &compression)?;
     let mut archive = tar::Archive::new(decoder);
     for entry in archive.entries()? {
         let mut entry = entry?;
