@@ -23,12 +23,16 @@ pub fn diff(base_archive: &Path, target_archive: &Path) -> Result<ArctgzDelta, A
             continue;
         }
         match base_manifest.files.get(path) {
-            Some(base_entry) if base_entry.sha512 == entry.sha512 => {}
+            Some(base_entry)
+                if base_entry.size == entry.size
+                    && base_entry.sha512 == entry.sha512
+                    && base_entry.is_dir == entry.is_dir => {}
             Some(_) => {
                 ops.push(DeltaOp::Modify {
                     path: path.clone(),
                     size: entry.size,
                     sha512: entry.sha512.clone(),
+                    is_dir: entry.is_dir,
                 });
             }
             None => {
@@ -36,6 +40,7 @@ pub fn diff(base_archive: &Path, target_archive: &Path) -> Result<ArctgzDelta, A
                     path: path.clone(),
                     size: entry.size,
                     sha512: entry.sha512.clone(),
+                    is_dir: entry.is_dir,
                 });
             }
         }
@@ -88,23 +93,35 @@ pub fn patch(
             DeltaOp::Delete { path } => {
                 delete_set.insert(path.clone());
             }
-            DeltaOp::Modify { path, size, sha512 } => {
+            DeltaOp::Modify {
+                path,
+                size,
+                sha512,
+                is_dir,
+            } => {
                 modify_set.insert(path.clone());
                 new_files.insert(
                     path.clone(),
                     FileEntry {
                         size: *size,
                         sha512: sha512.clone(),
+                        is_dir: *is_dir,
                     },
                 );
             }
-            DeltaOp::Add { path, size, sha512 } => {
+            DeltaOp::Add {
+                path,
+                size,
+                sha512,
+                is_dir,
+            } => {
                 add_set.insert(path.clone());
                 new_files.insert(
                     path.clone(),
                     FileEntry {
                         size: *size,
                         sha512: sha512.clone(),
+                        is_dir: *is_dir,
                     },
                 );
             }
@@ -266,6 +283,17 @@ fn write_patched_tar<W: Write>(
             ArctgzError::DeltaError(format!("File '{}' not found in base manifest", path))
         })?;
 
+        if expected.is_dir {
+            let mut header = tar::Header::new_gnu();
+            header
+                .set_path(&path)
+                .map_err(|e| ArctgzError::Io(std::io::Error::other(e)))?;
+            header.set_size(0);
+            header.set_entry_type(tar::EntryType::Directory);
+            builder.append_data(&mut header, &path, &[][..])?;
+            continue;
+        }
+
         let mut data = Vec::with_capacity(expected.size as usize);
         entry.take(expected.size).read_to_end(&mut data)?;
         if data.len() as u64 != expected.size {
@@ -312,6 +340,17 @@ fn write_patched_tar<W: Write>(
         let expected = new_manifest.files.get(&path).ok_or_else(|| {
             ArctgzError::DeltaError(format!("Missing manifest entry for '{}'", path))
         })?;
+
+        if expected.is_dir {
+            let mut header = tar::Header::new_gnu();
+            header
+                .set_path(&path)
+                .map_err(|e| ArctgzError::Io(std::io::Error::other(e)))?;
+            header.set_size(0);
+            header.set_entry_type(tar::EntryType::Directory);
+            builder.append_data(&mut header, &path, &[][..])?;
+            continue;
+        }
 
         let mut data = Vec::with_capacity(expected.size as usize);
         entry.take(expected.size).read_to_end(&mut data)?;
