@@ -23,18 +23,19 @@ pub fn extract_recipe(archive_path: &Path) -> Result<ArctgzRecipe, ArctgzError> 
     let file = File::open(archive_path)?;
     let decoder = crate::core::archive::make_reader_from_file(&file, &compression)?;
     let mut archive = tar::Archive::new(decoder);
-    for entry in archive.entries()? {
-        let mut entry = entry?;
-        if entry.path()?.to_string_lossy() == "manifest.json" {
-            let mut buf = [0u8; 8192];
-            while entry.read(&mut buf)? > 0 {}
-            break;
-        }
-    }
 
+    let mut skipped_manifest = false;
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?.to_string_lossy().into_owned();
+
+        if !skipped_manifest && path == "manifest.json" {
+            let mut sink = [0u8; 8192];
+            while entry.read(&mut sink)? > 0 {}
+            skipped_manifest = true;
+            continue;
+        }
+
         if path == "recipe.json" {
             let mut buf = Vec::new();
             entry.read_to_end(&mut buf)?;
