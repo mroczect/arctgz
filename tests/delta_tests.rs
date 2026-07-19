@@ -15,7 +15,7 @@ fn delta_add_file() {
         config.include = vec!["hello.txt".into()];
         save_config(&base, &config).unwrap();
         fs::write(base.join("include").join("hello.txt"), b"hello").unwrap();
-        let base_archive = compile(&base, None, false, None).unwrap();
+        let base_archive = compile(&base, None, false, None, None).unwrap();
 
         let target = home.join("target");
         init(&target, false).unwrap();
@@ -24,7 +24,7 @@ fn delta_add_file() {
         save_config(&target, &config).unwrap();
         fs::write(target.join("include").join("hello.txt"), b"hello").unwrap();
         fs::write(target.join("include").join("world.txt"), b"world").unwrap();
-        let target_archive = compile(&target, None, false, None).unwrap();
+        let target_archive = compile(&target, None, false, None, None).unwrap();
 
         let delta = diff(&base_archive, &target_archive).unwrap();
         assert_eq!(delta.operations.len(), 1);
@@ -33,10 +33,10 @@ fn delta_add_file() {
         let patched = home.join("patched.artgz");
         patch(&base_archive, &target_archive, &delta, &patched, None).unwrap();
 
-        verify(&patched, None).unwrap();
+        verify(&patched, None, None).unwrap();
 
         let out = home.join("out");
-        extract(&patched, &out, false, None).unwrap();
+        extract(&patched, &out, false, None, None).unwrap();
         assert_eq!(fs::read_to_string(out.join("hello.txt")).unwrap(), "hello");
         assert_eq!(fs::read_to_string(out.join("world.txt")).unwrap(), "world");
     });
@@ -51,7 +51,7 @@ fn delta_modify_file() {
         config.include = vec!["data.txt".into()];
         save_config(&base, &config).unwrap();
         fs::write(base.join("include").join("data.txt"), b"old").unwrap();
-        let base_archive = compile(&base, None, false, None).unwrap();
+        let base_archive = compile(&base, None, false, None, None).unwrap();
 
         let target = home.join("target2");
         init(&target, false).unwrap();
@@ -59,7 +59,7 @@ fn delta_modify_file() {
         config.include = vec!["data.txt".into()];
         save_config(&target, &config).unwrap();
         fs::write(target.join("include").join("data.txt"), b"new").unwrap();
-        let target_archive = compile(&target, None, false, None).unwrap();
+        let target_archive = compile(&target, None, false, None, None).unwrap();
 
         let delta = diff(&base_archive, &target_archive).unwrap();
         assert_eq!(delta.operations.len(), 1);
@@ -68,10 +68,10 @@ fn delta_modify_file() {
         let patched = home.join("patched2.artgz");
         patch(&base_archive, &target_archive, &delta, &patched, None).unwrap();
 
-        verify(&patched, None).unwrap();
+        verify(&patched, None, None).unwrap();
 
         let out = home.join("out2");
-        extract(&patched, &out, false, None).unwrap();
+        extract(&patched, &out, false, None, None).unwrap();
         assert_eq!(fs::read_to_string(out.join("data.txt")).unwrap(), "new");
     });
 }
@@ -86,7 +86,7 @@ fn delta_delete_file() {
         save_config(&base, &config).unwrap();
         fs::write(base.join("include").join("a.txt"), b"a").unwrap();
         fs::write(base.join("include").join("b.txt"), b"b").unwrap();
-        let base_archive = compile(&base, None, false, None).unwrap();
+        let base_archive = compile(&base, None, false, None, None).unwrap();
 
         let target = home.join("target3");
         init(&target, false).unwrap();
@@ -94,7 +94,7 @@ fn delta_delete_file() {
         config.include = vec!["a.txt".into()];
         save_config(&target, &config).unwrap();
         fs::write(target.join("include").join("a.txt"), b"a").unwrap();
-        let target_archive = compile(&target, None, false, None).unwrap();
+        let target_archive = compile(&target, None, false, None, None).unwrap();
 
         let delta = diff(&base_archive, &target_archive).unwrap();
         assert_eq!(delta.operations.len(), 1);
@@ -103,10 +103,10 @@ fn delta_delete_file() {
         let patched = home.join("patched3.artgz");
         patch(&base_archive, &target_archive, &delta, &patched, None).unwrap();
 
-        verify(&patched, None).unwrap();
+        verify(&patched, None, None).unwrap();
 
         let out = home.join("out3");
-        extract(&patched, &out, false, None).unwrap();
+        extract(&patched, &out, false, None, None).unwrap();
         assert!(out.join("a.txt").exists());
         assert!(!out.join("b.txt").exists());
     });
@@ -122,7 +122,7 @@ fn delta_zstd() {
         c.include = vec!["f.txt".into()];
         save_config(&base, &c).unwrap();
         fs::write(base.join("include").join("f.txt"), b"old").unwrap();
-        let ba = compile(&base, None, false, None).unwrap();
+        let base_archive = compile(&base, None, false, None, None).unwrap();
 
         let target = home.join("ztarget");
         init(&target, false).unwrap();
@@ -131,14 +131,14 @@ fn delta_zstd() {
         c.include = vec!["f.txt".into()];
         save_config(&target, &c).unwrap();
         fs::write(target.join("include").join("f.txt"), b"new").unwrap();
-        let ta = compile(&target, None, false, None).unwrap();
+        let target_archive = compile(&target, None, false, None, None).unwrap();
 
-        let delta = diff(&ba, &ta).unwrap();
+        let delta = diff(&base_archive, &target_archive).unwrap();
         let patched = home.join("patched_zstd.artgz");
-        patch(&ba, &ta, &delta, &patched, None).unwrap();
-        verify(&patched, None).unwrap();
+        patch(&base_archive, &target_archive, &delta, &patched, None).unwrap();
+        verify(&patched, None, None).unwrap();
         let out = home.join("out");
-        extract(&patched, &out, false, None).unwrap();
+        extract(&patched, &out, false, None, None).unwrap();
         assert_eq!(fs::read_to_string(out.join("f.txt")).unwrap(), "new");
     });
 }
