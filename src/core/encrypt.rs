@@ -1,7 +1,7 @@
 use crate::handler::ArctgzError;
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit, OsRng},
 };
 use argon2::Argon2;
 use rand::RngCore;
