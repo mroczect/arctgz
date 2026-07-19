@@ -14,10 +14,10 @@ fn extract_restores_files() {
         config.include = vec!["data.txt".into()];
         save_config(&project, &config).unwrap();
 
-        let archive_path = compile(&project, None, false).unwrap();
+        let archive_path = compile(&project, None, false, None).unwrap();
 
         let out_dir = home.join("out_extract");
-        extract(&archive_path, &out_dir, false).unwrap();
+        extract(&archive_path, &out_dir, false, None).unwrap();
 
         assert!(out_dir.join("arctgz.init").exists());
         assert!(out_dir.join("data.txt").exists());
@@ -65,7 +65,7 @@ fn extract_detects_checksum_mismatch() {
         enc.finish().unwrap();
 
         let out_dir = home.join("out");
-        let res = extract(&archive_path, &out_dir, false);
+        let res = extract(&archive_path, &out_dir, false, None);
         assert!(matches!(res, Err(ArctgzError::ChecksumMismatch(_, _, _))));
     });
 }
@@ -88,7 +88,7 @@ fn extract_no_manifest_errors() {
         enc.finish().unwrap();
 
         let out_dir = home.join("out");
-        let res = extract(&archive_path, &out_dir, false);
+        let res = extract(&archive_path, &out_dir, false, None);
         assert!(matches!(res, Err(ArctgzError::ManifestNotFound)));
     });
 }
@@ -102,14 +102,14 @@ fn extract_overwrite_with_force() {
         let mut config = load_config(&project).unwrap();
         config.include = vec!["file.txt".into()];
         save_config(&project, &config).unwrap();
-        let archive_path = compile(&project, None, false).unwrap();
+        let archive_path = compile(&project, None, false, None).unwrap();
 
         let out_dir = home.join("out");
         fs::create_dir(&out_dir).unwrap();
         fs::write(out_dir.join("file.txt"), b"old").unwrap();
-        let res = extract(&archive_path, &out_dir, false);
+        let res = extract(&archive_path, &out_dir, false, None);
         assert!(res.is_err());
-        extract(&archive_path, &out_dir, true).unwrap();
+        extract(&archive_path, &out_dir, true, None).unwrap();
         let content = fs::read_to_string(out_dir.join("file.txt")).unwrap();
         assert_eq!(content, "content");
     });
@@ -120,9 +120,9 @@ fn extract_to_nonexistent_dir_creates_it() {
     with_temp_home(|home| {
         let project = home.join("newdir_extract");
         init(&project, false).unwrap();
-        let archive_path = compile(&project, None, false).unwrap();
+        let archive_path = compile(&project, None, false, None).unwrap();
         let out_dir = home.join("nonexistent_output");
-        extract(&archive_path, &out_dir, false).unwrap();
+        extract(&archive_path, &out_dir, false, None).unwrap();
         assert!(out_dir.join("arctgz.init").exists());
     });
 }
