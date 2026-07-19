@@ -1,15 +1,26 @@
 use crate::handler::ArctgzError;
 use sha2::{Digest, Sha512};
 use std::collections::HashSet;
-use std::fs;
+use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
 
 pub fn extract(archive_path: &Path, output_dir: &Path, force: bool) -> Result<(), ArctgzError> {
-    let (manifest, reader) = crate::core::archive::open_archive_file(archive_path)?;
-    let mut archive = tar::Archive::new(reader);
-    let mut extracted_files: HashSet<String> = HashSet::new();
+    let (manifest, compression) = crate::core::archive::read_manifest(archive_path)?;
 
+    let file = File::open(archive_path)?;
+    let decoder = crate::core::archive::make_reader_from_file(&file, &compression)?;
+    let mut archive = tar::Archive::new(decoder);
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        if entry.path()?.to_string_lossy() == "manifest.json" {
+            let mut buf = [0u8; 8192];
+            while entry.read(&mut buf)? > 0 {}
+            break;
+        }
+    }
+
+    let mut extracted_files: HashSet<String> = HashSet::new();
     let mut buf = [0u8; 8192];
     for entry in archive.entries()? {
         let mut entry = entry?;
