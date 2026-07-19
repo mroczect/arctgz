@@ -35,7 +35,6 @@ pub fn extract_recipe(archive_path: &Path) -> Result<ArctgzRecipe, ArctgzError> 
     }
     Err(ArctgzError::RecipeNotFound)
 }
-
 pub fn execute_recipe(
     output_dir: &Path,
     recipe: &ArctgzRecipe,
