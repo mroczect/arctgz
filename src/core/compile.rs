@@ -73,6 +73,28 @@ fn build_archive<W: Write>(
             ));
         }
 
+        if path.is_dir() {
+            let rel_path = path
+                .strip_prefix(source_dir)
+                .map_err(|_| ArctgzError::Io(std::io::Error::other("Path strip error")))?;
+            if rel_path.as_os_str().is_empty() {
+                continue;
+            }
+
+            let is_empty = WalkDir::new(path)
+                .min_depth(1)
+                .max_depth(1)
+                .into_iter()
+                .filter_entry(|e| !is_excluded(e.path(), &[]))
+                .next()
+                .is_none();
+
+            if is_empty {
+                add_directory_to_archive(builder, &mut manifest_files, rel_path)?;
+            }
+            continue;
+        }
+
         if !path.is_file() {
             continue;
         }
@@ -153,7 +175,14 @@ fn add_file_to_archive<W: Write>(
     }
     let hash = hex::encode(hash_reader.hasher.finalize());
 
-    manifest.insert(path_str, FileEntry { size, sha512: hash });
+    manifest.insert(
+        path_str,
+        FileEntry {
+            size,
+            sha512: hash,
+            is_dir: false,
+        },
+    );
 
     Ok(())
 }
@@ -252,4 +281,29 @@ pub fn compile(
 
     fs::rename(&temp_path, &output_path)?;
     Ok(output_path)
+}
+
+fn add_directory_to_archive<W: Write>(
+    builder: &mut tar::Builder<W>,
+    manifest: &mut BTreeMap<String, FileEntry>,
+    rel_path: &Path,
+) -> Result<(), ArctgzError> {
+    let path_str = rel_path.to_string_lossy().into_owned();
+    let mut header = tar::Header::new_gnu();
+    header
+        .set_path(&path_str)
+        .map_err(|e| ArctgzError::Io(std::io::Error::other(e)))?;
+    header.set_size(0);
+    header.set_entry_type(tar::EntryType::Directory);
+    builder.append_data(&mut header, &path_str, &[][..])?;
+
+    manifest.insert(
+        path_str,
+        FileEntry {
+            size: 0,
+            sha512: String::new(),
+            is_dir: true,
+        },
+    );
+    Ok(())
 }
