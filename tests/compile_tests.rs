@@ -1,7 +1,7 @@
 mod common;
 use common::with_temp_home;
 
-use arctgz::{ArctgzError, compile, init, load_config, save_config};
+use arctgz::{ArctgzError, compile, extract, init, load_config, save_config};
 use std::fs;
 
 #[test]
@@ -86,5 +86,45 @@ fn compile_missing_include_file_errors() {
         save_config(&project, &config).unwrap();
         let res = compile(&project, None, false, None);
         assert!(matches!(res, Err(ArctgzError::IncludeFileNotFound(_))));
+    });
+}
+
+#[test]
+fn compile_glob_pattern() {
+    with_temp_home(|home| {
+        let project = home.join("glob_test");
+        init(&project, false).unwrap();
+        fs::write(project.join("include").join("a.txt"), b"a").unwrap();
+        fs::write(project.join("include").join("b.md"), b"b").unwrap();
+        let mut cfg = load_config(&project).unwrap();
+        cfg.include = vec!["*.txt".into()];
+        save_config(&project, &cfg).unwrap();
+        let archive = compile(&project, None, false, None).unwrap();
+        let f = fs::File::open(&archive).unwrap();
+        let gz = flate2::read::GzDecoder::new(f);
+        let mut ar = tar::Archive::new(gz);
+        let names: Vec<String> = ar
+            .entries()
+            .unwrap()
+            .map(|e| e.unwrap().path().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.contains(&"a.txt".to_string()));
+        assert!(!names.contains(&"b.md".to_string()));
+    });
+}
+
+#[test]
+fn compile_empty_directory() {
+    with_temp_home(|home| {
+        let project = home.join("empty_dir_test");
+        init(&project, false).unwrap();
+        fs::create_dir(project.join("include").join("sub")).unwrap();
+        let mut cfg = load_config(&project).unwrap();
+        cfg.include = vec!["sub".into()];
+        save_config(&project, &cfg).unwrap();
+        let archive = compile(&project, None, false, None).unwrap();
+        let out = home.join("out");
+        extract(&archive, &out, false, None).unwrap();
+        assert!(out.join("sub").is_dir());
     });
 }
