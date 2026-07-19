@@ -27,12 +27,6 @@ fn verify_checksum_mismatch() {
         let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
         let mut tar = tar::Builder::new(enc);
 
-        let mut header = tar::Header::new_gnu();
-        header.set_size(6);
-        header.set_path("data.bin").unwrap();
-        tar.append_data(&mut header, "data.bin", b"secret".as_ref())
-            .unwrap();
-
         let manifest = serde_json::json!({
             "name": "test",
             "version": "0.1.0",
@@ -49,6 +43,12 @@ fn verify_checksum_mismatch() {
         mheader.set_size(manifest_bytes.len() as u64);
         mheader.set_path("manifest.json").unwrap();
         tar.append_data(&mut mheader, "manifest.json", &manifest_bytes[..])
+            .unwrap();
+
+        let mut header = tar::Header::new_gnu();
+        header.set_size(6);
+        header.set_path("data.bin").unwrap();
+        tar.append_data(&mut header, "data.bin", b"secret".as_ref())
             .unwrap();
 
         let enc = tar.into_inner().unwrap();
