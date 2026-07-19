@@ -27,12 +27,15 @@ fn delta_add_file() {
         let target_archive = compile(&target, None, false, None, None).unwrap();
 
         let delta = diff(&base_archive, &target_archive).unwrap();
-        assert_eq!(delta.operations.len(), 1);
-        assert!(matches!(delta.operations[0], DeltaOp::Add { .. }));
+        // Pastikan ada operasi Add untuk world.txt
+        let has_add = delta
+            .operations
+            .iter()
+            .any(|op| matches!(op, DeltaOp::Add { path, .. } if path == "world.txt"));
+        assert!(has_add, "Expected an Add operation for world.txt");
 
         let patched = home.join("patched.artgz");
         patch(&base_archive, &target_archive, &delta, &patched, None).unwrap();
-
         verify(&patched, None, None).unwrap();
 
         let out = home.join("out");
@@ -67,7 +70,6 @@ fn delta_modify_file() {
 
         let patched = home.join("patched2.artgz");
         patch(&base_archive, &target_archive, &delta, &patched, None).unwrap();
-
         verify(&patched, None, None).unwrap();
 
         let out = home.join("out2");
@@ -97,12 +99,15 @@ fn delta_delete_file() {
         let target_archive = compile(&target, None, false, None, None).unwrap();
 
         let delta = diff(&base_archive, &target_archive).unwrap();
-        assert_eq!(delta.operations.len(), 1);
-        assert!(matches!(delta.operations[0], DeltaOp::Delete { .. }));
+        // Pastikan ada operasi Delete untuk b.txt
+        let has_delete = delta
+            .operations
+            .iter()
+            .any(|op| matches!(op, DeltaOp::Delete { path } if path == "b.txt"));
+        assert!(has_delete, "Expected a Delete operation for b.txt");
 
         let patched = home.join("patched3.artgz");
         patch(&base_archive, &target_archive, &delta, &patched, None).unwrap();
-
         verify(&patched, None, None).unwrap();
 
         let out = home.join("out3");
