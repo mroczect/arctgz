@@ -22,7 +22,7 @@ fn compile_uses_include_list() {
         config.include = vec!["hello.txt".into()];
         save_config(&project, &config).unwrap();
 
-        let archive_path = compile(&project, None, false, None).unwrap();
+        let archive_path = compile(&project, None, false, None, None).unwrap();
         assert!(archive_path.exists());
 
         let f = fs::File::open(&archive_path).unwrap();
@@ -55,7 +55,7 @@ fn compile_rejects_symlink() {
         config.include = vec!["link.txt".into()];
         save_config(&project, &config).unwrap();
 
-        let res = compile(&project, None, false, None);
+        let res = compile(&project, None, false, None, None);
         #[cfg(unix)]
         assert!(matches!(res, Err(ArctgzError::SymlinkNotAllowed(_))));
         #[cfg(not(unix))]
@@ -68,10 +68,10 @@ fn compile_force_overwrites_existing_archive() {
     with_temp_home(|home| {
         let project = home.join("force_compile");
         init(&project, false).unwrap();
-        compile(&project, None, false, None).unwrap();
-        let res = compile(&project, None, false, None);
+        compile(&project, None, false, None, None).unwrap();
+        let res = compile(&project, None, false, None, None);
         assert!(res.is_err());
-        let path = compile(&project, None, true, None).unwrap();
+        let path = compile(&project, None, true, None, None).unwrap();
         assert!(path.exists());
     });
 }
@@ -84,7 +84,7 @@ fn compile_missing_include_file_errors() {
         let mut config = load_config(&project).unwrap();
         config.include = vec!["nonexistent.txt".into()];
         save_config(&project, &config).unwrap();
-        let res = compile(&project, None, false, None);
+        let res = compile(&project, None, false, None, None);
         assert!(matches!(res, Err(ArctgzError::IncludeFileNotFound(_))));
     });
 }
@@ -99,7 +99,7 @@ fn compile_glob_pattern() {
         let mut cfg = load_config(&project).unwrap();
         cfg.include = vec!["*.txt".into()];
         save_config(&project, &cfg).unwrap();
-        let archive = compile(&project, None, false, None).unwrap();
+        let archive = compile(&project, None, false, None, None).unwrap();
         let f = fs::File::open(&archive).unwrap();
         let gz = flate2::read::GzDecoder::new(f);
         let mut ar = tar::Archive::new(gz);
@@ -122,9 +122,9 @@ fn compile_empty_directory() {
         let mut cfg = load_config(&project).unwrap();
         cfg.include = vec!["sub".into()];
         save_config(&project, &cfg).unwrap();
-        let archive = compile(&project, None, false, None).unwrap();
+        let archive = compile(&project, None, false, None, None).unwrap();
         let out = home.join("out");
-        extract(&archive, &out, false, None).unwrap();
+        extract(&archive, &out, false, None, None).unwrap();
         assert!(out.join("sub").is_dir());
     });
 }

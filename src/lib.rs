@@ -7,5 +7,5 @@ pub use core::{
 };
 pub use handler::{
     ArctgzConfig, ArctgzDelta, ArctgzError, ArctgzManifest, ArctgzRecipe, Compression, DeltaOp,
-    FileEntry, RecipeStep,
+    Encryption, FileEntry, RecipeStep,
 };

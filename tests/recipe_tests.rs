@@ -30,9 +30,9 @@ fn execute_recipe_copies_files() {
         )
         .unwrap();
 
-        let archive = compile(&project, None, false, None).unwrap();
+        let archive = compile(&project, None, false, None, None).unwrap();
         let out_dir = home.join("out");
-        extract(&archive, &out_dir, false, None).unwrap();
+        extract(&archive, &out_dir, false, None, None).unwrap();
         let r = extract_recipe(&archive).unwrap();
         execute_recipe(&out_dir, &r, false).unwrap();
 
@@ -65,9 +65,9 @@ fn execute_recipe_with_force_overwrites() {
         )
         .unwrap();
 
-        let archive = compile(&project, None, false, None).unwrap();
+        let archive = compile(&project, None, false, None, None).unwrap();
         let out_dir = home.join("out");
-        extract(&archive, &out_dir, false, None).unwrap();
+        extract(&archive, &out_dir, false, None, None).unwrap();
 
         fs::write(out_dir.join("dest.txt"), b"old").unwrap();
         let r = extract_recipe(&archive).unwrap();
@@ -94,7 +94,7 @@ fn recipe_path_traversal_rejected() {
             serde_json::to_string_pretty(&recipe).unwrap(),
         )
         .unwrap();
-        let res = compile(&project, None, false, None);
+        let res = compile(&project, None, false, None, None);
         assert!(matches!(res, Err(ArctgzError::RecipeInvalid(_))));
     });
 }

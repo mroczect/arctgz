@@ -2,12 +2,12 @@ pub mod archive;
 pub mod compile;
 pub mod config;
 pub mod delta;
+pub mod encrypt;
 pub mod extract;
 pub mod init;
 pub mod recipe;
 pub mod sign;
 pub mod verify;
-pub mod encrypt;
 
 pub use compile::compile;
 pub use config::{load_config, save_config};

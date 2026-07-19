@@ -1,7 +1,8 @@
 use crate::core::config::load_config;
 use crate::core::recipe::validate_recipe;
-use crate::handler::ArctgzRecipe;
-use crate::handler::{ArctgzError, ArctgzManifest, Compression, FileEntry};
+use crate::handler::{
+    ArctgzError, ArctgzManifest, ArctgzRecipe, Compression, Encryption, FileEntry,
+};
 use chrono::Utc;
 use rayon::prelude::*;
 use sha2::{Digest, Sha512};
@@ -16,6 +17,7 @@ pub fn compile(
     output_path: Option<&Path>,
     force: bool,
     private_key: Option<&[u8]>,
+    password: Option<&str>,
 ) -> Result<PathBuf, ArctgzError> {
     let config = load_config(project_path)?;
     let include_patterns = config.include;
@@ -170,7 +172,15 @@ pub fn compile(
         }
     }
 
-    fs::rename(&temp_path, &output_path)?;
+    if config.encryption == Encryption::Aes256Gcm {
+        let pw = password.ok_or_else(|| {
+            ArctgzError::EncryptionError("Password required for encrypted archive".into())
+        })?;
+        crate::core::encrypt::encrypt_file(&temp_path, &output_path, pw)?;
+        fs::remove_file(&temp_path)?;
+    } else {
+        fs::rename(&temp_path, &output_path)?;
+    }
     Ok(output_path)
 }
 
