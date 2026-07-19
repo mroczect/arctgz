@@ -64,4 +64,7 @@ pub enum ArctgzError {
 
     #[error("Invalid signing key: {0}")]
     KeyError(String),
+
+    #[error("Delta operation error: {0}")]
+    DeltaError(String),
 }
