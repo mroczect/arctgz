@@ -7,7 +7,6 @@ use std::path::{Component, Path};
 
 pub fn extract(archive_path: &Path, output_dir: &Path, force: bool) -> Result<(), ArctgzError> {
     let raw = std::fs::read(archive_path)?;
-
     let (manifest, reader) = crate::core::archive::open_archive(&raw)?;
 
     let mut archive2 = tar::Archive::new(reader);
