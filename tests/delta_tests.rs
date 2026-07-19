@@ -29,7 +29,7 @@ fn delta_add_file() {
         assert!(matches!(delta.operations[0], DeltaOp::Add { .. }));
 
         let patched = home.join("patched.artgz");
-        patch(&base_archive, &delta, &patched, None).unwrap();
+        patch(&base_archive, &target_archive, &delta, &patched, None).unwrap();
 
         verify(&patched, None).unwrap();
 
@@ -64,7 +64,7 @@ fn delta_modify_file() {
         assert!(matches!(delta.operations[0], DeltaOp::Modify { .. }));
 
         let patched = home.join("patched2.artgz");
-        patch(&base_archive, &delta, &patched, None).unwrap();
+        patch(&base_archive, &target_archive, &delta, &patched, None).unwrap();
 
         verify(&patched, None).unwrap();
 
@@ -99,7 +99,7 @@ fn delta_delete_file() {
         assert!(matches!(delta.operations[0], DeltaOp::Delete { .. }));
 
         let patched = home.join("patched3.artgz");
-        patch(&base_archive, &delta, &patched, None).unwrap();
+        patch(&base_archive, &target_archive, &delta, &patched, None).unwrap();
 
         verify(&patched, None).unwrap();
 
