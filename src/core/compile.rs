@@ -11,6 +11,7 @@ pub fn compile(
     project_path: &Path,
     output_dir: Option<&Path>,
     force: bool,
+    private_key: Option<&[u8]>,
 ) -> Result<PathBuf, ArctgzError> {
     let config = crate::core::config::load_config(project_path)?;
     let include_dir = project_path.join("include");
@@ -66,6 +67,7 @@ pub fn compile(
         created: Utc::now(),
         compression: config.compression.clone(),
         files: BTreeMap::new(),
+        signature: None,
     };
     for (archive_path, _data, hash, size) in &entries_with_data {
         manifest.files.insert(
@@ -75,6 +77,10 @@ pub fn compile(
                 sha512: hash.clone(),
             },
         );
+    }
+
+    if let Some(key) = private_key {
+        manifest.signature = Some(crate::core::sign::sign_manifest(&manifest, key)?);
     }
 
     let dist_dir = match output_dir {
