@@ -5,8 +5,12 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-pub fn verify(archive_path: &Path) -> Result<(), ArctgzError> {
+pub fn verify(archive_path: &Path, public_key: Option<&[u8]>) -> Result<(), ArctgzError> {
     let (manifest, compression) = crate::core::archive::read_manifest(archive_path)?;
+
+    if let Some(pk) = public_key {
+        crate::core::sign::verify_manifest(&manifest, pk)?;
+    }
 
     let file = File::open(archive_path)?;
     let decoder = crate::core::archive::make_reader_from_file(&file, &compression)?;
