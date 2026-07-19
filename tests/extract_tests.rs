@@ -37,12 +37,6 @@ fn extract_detects_checksum_mismatch() {
         let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
         let mut tar = tar::Builder::new(enc);
 
-        let mut header = tar::Header::new_gnu();
-        header.set_size(6);
-        header.set_path("real.txt").unwrap();
-        tar.append_data(&mut header, "real.txt", b"secret".as_ref())
-            .unwrap();
-
         let manifest = serde_json::json!({
             "name": "test",
             "version": "0.1.0",
@@ -55,10 +49,16 @@ fn extract_detects_checksum_mismatch() {
             }
         });
         let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
-        let mut manifest_header = tar::Header::new_gnu();
-        manifest_header.set_size(manifest_bytes.len() as u64);
-        manifest_header.set_path("manifest.json").unwrap();
-        tar.append_data(&mut manifest_header, "manifest.json", &manifest_bytes[..])
+        let mut mheader = tar::Header::new_gnu();
+        mheader.set_size(manifest_bytes.len() as u64);
+        mheader.set_path("manifest.json").unwrap();
+        tar.append_data(&mut mheader, "manifest.json", &manifest_bytes[..])
+            .unwrap();
+
+        let mut header = tar::Header::new_gnu();
+        header.set_size(6);
+        header.set_path("real.txt").unwrap();
+        tar.append_data(&mut header, "real.txt", b"secret".as_ref())
             .unwrap();
 
         let enc = tar.into_inner().unwrap();
