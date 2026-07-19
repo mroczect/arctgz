@@ -1,12 +1,12 @@
-arctgz(7)						   Miscellaneous Information Manual						    arctgz(7)
+arctgz(7)						Miscellaneous Information Manual					      arctgz(7)
 
 NAME
        arctgz - safety-first project lifecycle library for the arctgz archive format
 
 SYNOPSIS
        use arctgz::{
-	   init, load_config, save_config, compile, extract,
-	   verify,
+	   init, load_config, save_config,
+	   compile, extract, verify,
 	   load_recipe, extract_recipe, execute_recipe,
 	   ArctgzConfig, ArctgzManifest, FileEntry,
 	   ArctgzRecipe, RecipeStep, Compression, ArctgzError
@@ -76,12 +76,12 @@ SYNOPSIS
        enum ArctgzError { ... }
 
 DESCRIPTION
-       The  arctgz  library  provides a safe, cross-platform API for the full lifecycle of an arctgz project: scaffolding, configuration, compilation
-       into a compressed and integrity-verified archive, verified extraction, standalone integrity verification, and  post-extraction  recipe  execu‐
+       The arctgz library provides a safe, cross-platform API for the full lifecycle of an arctgz project: scaffolding, configuration, compila‐
+       tion  into  a compressed and integrity-verified archive, verified extraction, standalone verification, and post-extraction recipe execu‐
        tion.
 
-       All  operations	enforce	 strict path confinement, validate metadata before touching the filesystem, and use atomic file operations to prevent
-       corruption and TOCTOU (time-of-check to time-of-use) races.
+       All operations enforce strict path confinement, validate metadata before touching the filesystem, and use atomic file operations to pre‐
+       vent corruption and TOCTOU (time-of-check to time-of-use) races.
 
        The core functionality includes:
 
@@ -97,8 +97,8 @@ DESCRIPTION
 
        • load_recipe() / extract_recipe() / execute_recipe() – manage and execute post-extraction recipes (copy, mkdir, chmod, remove).
 
-       All paths are resolved with std::fs::canonicalize() (equivalent to realpath(3)), so symbolic links are followed during the home-directory con‐
-       finement check.	The library is fully tested on Linux, macOS, and Windows.
+       All paths are resolved with std::fs::canonicalize() (equivalent to realpath(3)), so symbolic links are followed during  the  home-direc‐
+       tory confinement check.	The library is fully tested on Linux, macOS, and Windows.
 
 INSTALLATION
        This man page can be installed system-wide using the provided installer script:
@@ -111,68 +111,173 @@ INSTALLATION
 
 FUNCTIONS
        init(project_path, force)
-	      Initialises a new arctgz project at project_path.	 Creates the directory, an include/ subdirectory, and  a  default  arctgz.init	file.
-	      The default configuration includes "compression": "gzip".	 See ArctgzConfig for details.
+	      Initialises a new arctgz project at project_path.
 
-       Security checks are performed before any filesystem changes; a failed call leaves no side effects.
+	      Arguments:
+
+		     project_path
+			    A  reference  to  a std::path::Path.  The path must not be empty and must reside (after canonicalisation) under the
+			    current user's home directory.  If the path does not exist, it will be created; otherwise it must be a directory.
+
+		     force  If true, skip the non-empty directory check.  However, an existing arctgz.init file will still cause an AlreadyIni‐
+			    tialized error.
+
+	      Return value:
+		     Ok(()) on success, or an ArctgzError describing the failure.
+
+	      Side effects (only after all safety checks pass):
+
+		     • Creates the project directory (and parents, if needed).
+
+		     • Creates the include/ subdirectory.
+
+		     • Writes a default arctgz.init configuration file atomically (using create_new(true)).  The default configuration includes
+		       "compression": "gzip".
+
+	      Security checks (performed before any filesystem modification):
+
+		     • Home directory confinement – the canonicalised project path must start with the canonicalised home  directory.	Symlink
+		       attacks are neutralised.
+
+		     • Path validity – rejects empty paths, and rejects existing files (as opposed to directories).
+
+		     • Directory emptiness (unless force is true).
 
        load_config(project_path)
-	      Reads and validates arctgz.init.
+	      Reads and validates the arctgz.init file from the given project directory.
+
+	      Arguments:
+
+		     project_path
+			    Path to the project root (must contain an arctgz.init file).
+
+	      Return value:
+		     Ok(ArctgzConfig) if the file exists, contains valid JSON, and passes validate().  On failure, returns an ArctgzError vari‐
+		     ant (ConfigNotFound, ConfigLoadError, or ConfigValidation).
 
        save_config(project_path, config)
-	      Atomically writes a validated ArctgzConfig back to disk (temp file + rename).
+	      Writes a validated ArctgzConfig back to the project's arctgz.init file atomically.  The operation first writes the JSON to a tem‐
+	      porary file (arctgz.tmp) and then renames it over the original.  This prevents corruption if the process crashes mid-write.
+
+	      Arguments:
+
+		     project_path
+			    Path to the project root.
+
+		     config An ArctgzConfig instance to save.  Must pass validate() before saving.
+
+	      Return value:
+		     Ok(()) on success, or an ArctgzError (ConfigValidation, ConfigSaveError, or Json).
 
        compile(project_path, output_dir, force)
 	      Compiles the project into an .artgz archive.
 
-       Steps:
+	      The function:
 
-       • Loads configuration via load_config().
+	      • Loads the project configuration via load_config().
 
-       • Collects arctgz.init, the include/ files, and an optional recipe.json (validated automatically).
+	      • Collects  the  arctgz.init  file and all files listed in the include array, recursively adding directories while rejecting sym‐
+		bolic links.  An optional recipe.json is also included if present.
 
-       • Computes SHA-512 hashes for every file in parallel using rayon.
+	      • Computes SHA-512 hashes for every file in parallel using rayon.
 
-       • Embeds an ArctgzManifest as manifest.json.
+	      • Embeds an ArctgzManifest as manifest.json.
 
-       • Compresses the tar stream with the configured algorithm (Compression::Gzip or Compression::Zstd).
+	      • Compresses the tar stream with the configured algorithm (Compression::Gzip or Compression::Zstd).
 
-       • Writes the archive atomically via a temporary file.
+	      • Writes the archive atomically via a temporary file and rename.
 
-       Symlinks are rejected.  If a recipe.json is present, it is validated and included; invalid recipes cause RecipeInvalid.
+	      Arguments:
+
+		     project_path
+			    Path to the project root.
+
+		     output_dir
+			    Optional output directory.	If None, the archive is placed in project_path/dist/.
+
+		     force  If true, overwrite an existing archive; otherwise fail if the archive already exists.
+
+	      Return value:
+		     Ok(PathBuf) containing the full path to the created archive, or an ArctgzError (including IncludeFileNotFound,  SymlinkNo‐
+		     tAllowed, RecipeInvalid, or Io for an already-existing archive when force is false).
+
+	      Safety:
+
+		     • Symlinks are rejected to prevent reference leaks outside the project.
+
+		     • If a recipe.json is present, it is validated before compilation; invalid recipes cause RecipeInvalid.
+
+		     • The entire archive is written atomically; a crash mid-write leaves no partial archive.
 
        extract(archive_path, output_dir, force)
-	      Extracts	an  archive with full verification.  Compression is detected automatically (gzip/zstd magic bytes).  All files are hashed and
-	      checked against the manifest; any mismatch aborts with ChecksumMismatch.	Path traversal (absolute paths or ..) is rejected.   Existing
-	      files are overwritten only when force is true.
+	      Extracts	a  previously  compiled arctgz archive with full integrity verification.  Compression (gzip/zstd) is detected automati‐
+	      cally.
+
+	      The function:
+
+	      • Opens and decompresses the archive.
+
+	      • Reads the embedded manifest.json and validates it.
+
+	      • Checks each file path using is_safe_archive_path (rejects absolute paths, .., empty strings, and .).
+
+	      • Verifies that all files in the manifest are present and vice versa.
+
+	      • Hashes each file and compares against the manifest; any mismatch aborts with ChecksumMismatch and removes the partially written
+		file.
+
+	      • Writes files to output_dir, creating subdirectories as needed, and refuses to overwrite existing files unless force is true.
+
+	      Arguments:
+
+		     archive_path
+			    Path to the .artgz archive.
+
+		     output_dir
+			    Destination directory; will be created if it does not exist.
+
+		     force  If true, overwrite existing files; otherwise abort on conflict.
+
+	      Return value:
+		     Ok(()) on success, or an ArctgzError (ManifestNotFound, ChecksumMismatch, ExtractError for unsafe paths, or  Io  for  file
+		     conflicts).
 
        verify(archive_path)
-	      Standalone  integrity check. Reads the archive, validates every file's hash and size against the manifest, ensures all manifest entries
-	      are present, and checks for unsafe paths.	 No files are written.
+	      Standalone  integrity  check.  Reads the archive, validates every file's hash and size against the manifest, ensures all manifest
+	      entries are present, and checks for unsafe paths.	 No files are written.
+
+	      Return value:
+		     Ok(()) if the archive is valid, or an ArctgzError (ManifestNotFound, ChecksumMismatch for hash or size mismatch, VerifyEr‐
+		     ror for missing/extra files or unsafe paths).
 
        load_recipe(project_path)
-	      Loads and validates recipe.json from a project directory. Returns Ok(None) if the file is absent.
+	      Loads and validates recipe.json from a project directory.	 Returns Ok(None) if the file does not exist.
 
        extract_recipe(archive_path)
-	      Extracts and validates the embedded recipe.json from an archive. Returns RecipeNotFound if missing.
+	      Extracts and validates the embedded recipe.json from an archive.	Automatically detects compression format (gzip or  zstd).   Re‐
+	      turns RecipeNotFound if the recipe is missing.
 
        execute_recipe(output_dir, recipe, force)
 	      Runs the steps of a recipe inside output_dir.  Supported steps:
 
-	      Copy { from, to }
-		     Copy a file or directory.
+		     Copy { from, to }
+			    Copy a file or directory.
 
-	      MkDir { path }
-		     Create a directory.
+		     MkDir { path }
+			    Create a directory.
 
-	      Chmod { path, mode }
-		     Set Unix permissions (octal string).  No-op on non-Unix platforms.
+		     Chmod { path, mode }
+			    Set Unix permissions (octal string).  On non-Unix platforms this step returns RecipeExecutionError and halts execu‐
+			    tion.
 
-	      Remove { path }
-		     Delete a file or directory.
+		     Remove { path }
+			    Delete a file or directory.
 
-       All recipe paths are validated; absolute paths, .., empty paths, or . are rejected.  When force is false, existing files or directories	cause
-       an error.
+	      All  recipe  paths  are validated: absolute paths, .., empty strings, and . are rejected.	 When force is false, existing files or
+	      directories cause an error.
+
+	      Return value:
+		     Ok(()) on success, or an ArctgzError (RecipeInvalid, RecipeExecutionError).
 
 TYPES
        ArctgzConfig
@@ -187,9 +292,12 @@ TYPES
 		     List of relative resource paths (max 100 entries, no .. or absolute paths).
 
 	      compression
-		     Compression algorithm: "gzip" (default) or "zstd".	 Determines archive format.
+		     Compression algorithm: "gzip" (default) or "zstd".
 
-       ArctgzManifest Embedded in every archive as manifest.json.
+       The configuration file is JSON with #[serde(deny_unknown_fields)]; unknown keys cause a deserialisation error.
+
+       ArctgzManifest
+	      Embedded in every archive as manifest.json.
 
 	      name, version
 		     Copied from config.
@@ -202,7 +310,8 @@ TYPES
 
 	      files  BTreeMap from archive paths to FileEntry.
 
-       FileEntry Metadata for one file: size (u64) and sha512 hex string.
+       FileEntry
+	      Metadata for one file: size (u64) and sha512 hex string.
 
        ArctgzRecipe
 	      Describes post-extraction actions.
@@ -219,7 +328,7 @@ TYPES
 	      Enum: Gzip (default), Zstd.
 
        ArctgzError
-	      All failure variants, now including:
+	      All failure variants, including:
 
 	      RecipeNotFound
 		     Recipe not found in archive.
@@ -273,7 +382,8 @@ EXAMPLE
 
 FILES
        arctgz.init
-	      Project configuration (JSON).  Now includes compression field.
+	      Project configuration (JSON).  The file is strictly validated; unknown fields cause an error.  Written atomically by  init()  and
+	      save_config().
 
        include/
 	      Resource directory.
@@ -285,44 +395,59 @@ FILES
 	      Post-extraction recipe embedded into the archive.
 
 ENVIRONMENT
-       HOME / USERPROFILE
-	      Home directory for confinement checks (via dirs crate).
+       HOME (Unix) / USERPROFILE (Windows)
+	      The  library  obtains  the current user's home directory through the dirs crate.	On Unix, the HOME variable is used; on Windows,
+	      USERPROFILE.  If the appropriate variable is not set, a platform-specific fallback is attempted.	If no home directory can be de‐
+	      termined, init() will fail with PathNotAllowed for any path (even relative ones) because confinement cannot be verified.
 
 SECURITY
-       • Home-directory confinement for init.
+       • Path confinement: only paths inside the canonicalised home directory are allowed for initialisation.  Symlink traversal is fully miti‐
+	 gated by canonicalising both the project path and the home directory.
 
-       • No side effects before validation.
+       • No side effects before validation: init() resolves the path and performs all security checks before creating any  directories.	  Thus,
+	 even a failed call with a path outside the home directory will not leave unwanted directories on disk.
 
-       • Atomic writes (config, archive).
+       • Atomic	 writes: the use of create_new(true) for init(), and temp file + rename for save_config() and compile(), ensure the target file
+	 is never left in an incomplete state.
 
-       • Archive integrity via SHA-512 manifest, verified on extract and verify.
+       • Archive integrity: every file in the archive is hashed with SHA-512.  The manifest is embedded and verified during extraction and ver‐
+	 ification; any hash or size mismatch aborts with ChecksumMismatch.
 
-       • Path traversal prevention in both extraction and recipe paths.
+       • Path traversal prevention: extract() and verify() reject archive paths that are absolute, contain .., are empty, or equal ..  The same
+	 validation applies to recipe paths.
 
-       • Symlink rejection during compilation.
+       • Symlink rejection: compile() refuses to include symbolic links, ensuring archives contain only regular files and directories.
 
-       • Strict validation of all configuration and recipe inputs, including denial of unknown JSON fields.
+       • Input validation: configuration and recipe fields are strictly validated.  Unknown JSON keys are rejected,  preventing	 accidental  or
+	 malicious settings from entering the project metadata.
+
+NOTES
+       The library is intended to be used as a building block for higher-level tools.  It does not impose any locking mechanism; concurrent op‐
+       erations	 on  the same project directory may lead to races.  However, each individual write operation (config save, archive creation) is
+       atomic, so partial corruption is avoided even under concurrent access.  Users should serialise access when multiple processes or threads
+       operate on the same project.
 
 VERSION
-       arctgz  0.5.0 – adds zstd compression, parallel hashing, post-extraction recipes, standalone verification, and a unified compression detection
-       layer.
+       arctgz 0.6.0 – introduces robust manifest reading via read_manifest, improved path safety checks	 (is_safe_archive_path),  and  corrects
+       the behaviour of Chmod on non-Unix platforms to return an error instead of silently doing nothing.
 
 SEE ALSO
        semver(7), realpath(3), serde_json(5), dirs(7), flate2(7), zstd(1), tar(5), sha2(7), rayon(7)
 
 BUGS
-       • The include/ directory is always empty initially; files must be added manually.
+       • The include/ directory is always created empty; files must be added manually before compilation.
 
-       • Concurrent operations on the same project directory are not serialised.
+       • Concurrent  operations	 on the same project directory are not serialised; while individual writes are atomic, the overall state may be
+	 inconsistent if multiple processes write simultaneously.
 
        • No cryptographic signatures yet; integrity relies solely on SHA-512 hashes.
 
-       • Chmod step is silently ignored on non-Unix platforms.
+       • The Chmod step is not supported on non-Unix platforms and will return an error.
 
 AUTHORS
        The arctgz developers.
 
 LICENSE
-       MIT.
+       MIT.  See the LICENSE file in the source distribution.
 
-arctgz 0.5.0							      2026-07-19							    arctgz(7)
+arctgz 0.6.0							   2026-07-19							      arctgz(7)
