@@ -14,8 +14,8 @@ fn verify_valid_archive() {
         config.include = vec!["hello.txt".into()];
         save_config(&project, &config).unwrap();
 
-        let archive = compile(&project, None, false).unwrap();
-        verify(&archive).unwrap();
+        let archive = compile(&project, None, false, None).unwrap();
+        verify(&archive, None).unwrap();
     });
 }
 
@@ -54,7 +54,7 @@ fn verify_checksum_mismatch() {
         let enc = tar.into_inner().unwrap();
         enc.finish().unwrap();
 
-        let res = verify(&fake_archive);
+        let res = verify(&fake_archive, None);
         assert!(matches!(res, Err(ArctgzError::ChecksumMismatch(_, _, _))));
     });
 }
@@ -76,7 +76,7 @@ fn verify_missing_manifest() {
         let enc = tar.into_inner().unwrap();
         enc.finish().unwrap();
 
-        let res = verify(&archive);
+        let res = verify(&archive, None);
         assert!(matches!(res, Err(ArctgzError::ManifestNotFound)));
     });
 }
@@ -115,7 +115,7 @@ fn verify_file_not_in_manifest() {
         let enc = tar.into_inner().unwrap();
         enc.finish().unwrap();
 
-        let res = verify(&archive);
+        let res = verify(&archive, None);
         assert!(matches!(res, Err(ArctgzError::VerifyError(_))));
     });
 }
@@ -151,7 +151,7 @@ fn verify_manifest_file_not_in_archive() {
         let enc = tar.into_inner().unwrap();
         enc.finish().unwrap();
 
-        let res = verify(&archive);
+        let res = verify(&archive, None);
         assert!(matches!(res, Err(ArctgzError::VerifyError(_))));
     });
 }
