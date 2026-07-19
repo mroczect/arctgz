@@ -247,7 +247,7 @@ fn write_patched_tar<W: Write>(
     let mut base_tar = tar::Archive::new(decoder);
 
     for entry in base_tar.entries()? {
-        let mut entry = entry?;
+        let entry = entry?;
         let path = entry.path()?.to_string_lossy().into_owned();
 
         if path == "manifest.json" {
@@ -262,9 +262,27 @@ fn write_patched_tar<W: Write>(
             continue;
         }
 
-        let expected = base_manifest.files.get(&path).unwrap();
-        let mut data = Vec::new();
-        entry.read_to_end(&mut data)?;
+        let expected = base_manifest.files.get(&path).ok_or_else(|| {
+            ArctgzError::DeltaError(format!("File '{}' not found in base manifest", path))
+        })?;
+
+        let mut data = Vec::with_capacity(expected.size as usize);
+        entry.take(expected.size).read_to_end(&mut data)?;
+        if data.len() as u64 != expected.size {
+            return Err(ArctgzError::DeltaError(format!(
+                "File size mismatch for '{}' in base archive: expected {}, got {}",
+                path,
+                expected.size,
+                data.len()
+            )));
+        }
+        let actual_hash = hex::encode(Sha512::digest(&data));
+        if actual_hash != expected.sha512 {
+            return Err(ArctgzError::DeltaError(format!(
+                "Hash mismatch for unchanged file '{}' in base archive",
+                path
+            )));
+        }
 
         let mut header = tar::Header::new_gnu();
         header
@@ -280,7 +298,7 @@ fn write_patched_tar<W: Write>(
     let mut target_tar = tar::Archive::new(decoder2);
 
     for entry in target_tar.entries()? {
-        let mut entry = entry?;
+        let entry = entry?;
         let path = entry.path()?.to_string_lossy().into_owned();
 
         if path == "manifest.json" {
@@ -291,9 +309,20 @@ fn write_patched_tar<W: Write>(
             continue;
         }
 
-        let expected = new_manifest.files.get(&path).unwrap();
-        let mut data = Vec::new();
-        entry.read_to_end(&mut data)?;
+        let expected = new_manifest.files.get(&path).ok_or_else(|| {
+            ArctgzError::DeltaError(format!("Missing manifest entry for '{}'", path))
+        })?;
+
+        let mut data = Vec::with_capacity(expected.size as usize);
+        entry.take(expected.size).read_to_end(&mut data)?;
+        if data.len() as u64 != expected.size {
+            return Err(ArctgzError::DeltaError(format!(
+                "File size mismatch for '{}': expected {}, got {}",
+                path,
+                expected.size,
+                data.len()
+            )));
+        }
 
         let mut header = tar::Header::new_gnu();
         header
