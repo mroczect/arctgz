@@ -17,9 +17,7 @@ pub fn load_recipe(project_path: &Path) -> Result<Option<ArctgzRecipe>, ArctgzEr
 }
 
 pub fn extract_recipe(archive_path: &Path) -> Result<ArctgzRecipe, ArctgzError> {
-    let raw = std::fs::read(archive_path)?;
-    let compression = crate::core::archive::detect_compression(&raw)?;
-    let reader = crate::core::archive::make_reader(&raw, &compression)?;
+    let (_manifest, reader) = crate::core::archive::open_archive_file(archive_path)?;
     let mut tar = tar::Archive::new(reader);
 
     for entry in tar.entries()? {
@@ -35,6 +33,7 @@ pub fn extract_recipe(archive_path: &Path) -> Result<ArctgzRecipe, ArctgzError> 
     }
     Err(ArctgzError::RecipeNotFound)
 }
+
 pub fn execute_recipe(
     output_dir: &Path,
     recipe: &ArctgzRecipe,
