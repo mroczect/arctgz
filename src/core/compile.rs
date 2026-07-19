@@ -4,8 +4,10 @@ use rayon::prelude::*;
 use sha2::{Digest, Sha512};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+
+const BUFFER_SIZE: usize = 64 * 1024;
 
 pub fn compile(
     project_path: &Path,
@@ -51,17 +53,6 @@ pub fn compile(
         }
     }
 
-    // Baca data SEKALI, simpan konten untuk menghindari TOCTOU dan I/O ulang
-    let entries_with_data: Vec<(String, Vec<u8>, String, u64)> = entries
-        .par_iter()
-        .map(|(archive_path, fs_path)| {
-            let data = fs::read(fs_path)?;
-            let hash = hex::encode(Sha512::digest(&data));
-            let size = data.len() as u64;
-            Ok::<_, ArctgzError>((archive_path.clone(), data, hash, size))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
     let mut manifest = ArctgzManifest {
         name: config.name.clone(),
         version: config.version.clone(),
@@ -69,7 +60,27 @@ pub fn compile(
         compression: config.compression.clone(),
         files: BTreeMap::new(),
     };
-    for (archive_path, _data, hash, size) in &entries_with_data {
+
+    let metadata_entries: Vec<_> = entries
+        .par_iter()
+        .map(|(archive_path, fs_path)| {
+            let mut file = File::open(fs_path)?;
+            let mut hasher = Sha512::new();
+            let mut buf = [0u8; BUFFER_SIZE];
+            let mut size: u64 = 0;
+            loop {
+                let n = file.read(&mut buf)?;
+                if n == 0 {
+                    break;
+                }
+                hasher.update(&buf[..n]);
+                size += n as u64;
+            }
+            Ok::<_, ArctgzError>((archive_path.clone(), hex::encode(hasher.finalize()), size))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for (archive_path, hash, size) in &metadata_entries {
         manifest.files.insert(
             archive_path.clone(),
             FileEntry {
@@ -102,14 +113,14 @@ pub fn compile(
             let encoder =
                 flate2::write::GzEncoder::new(archive_file, flate2::Compression::default());
             let mut tar_builder = tar::Builder::new(encoder);
-            write_tar_entries(&mut tar_builder, &entries_with_data, &manifest)?;
+            write_archive_streaming(&mut tar_builder, &manifest, &entries)?;
             let encoder = tar_builder.into_inner()?;
             encoder.finish()?;
         }
         Compression::Zstd => {
             let encoder = zstd::stream::Encoder::new(archive_file, 0)?;
             let mut tar_builder = tar::Builder::new(encoder);
-            write_tar_entries(&mut tar_builder, &entries_with_data, &manifest)?;
+            write_archive_streaming(&mut tar_builder, &manifest, &entries)?;
             let encoder = tar_builder.into_inner()?;
             encoder.finish()?;
         }
@@ -119,27 +130,32 @@ pub fn compile(
     Ok(archive_path)
 }
 
-fn write_tar_entries<W: Write>(
-    tar_builder: &mut tar::Builder<W>,
-    entries: &[(String, Vec<u8>, String, u64)],
+fn write_archive_streaming<W: Write>(
+    builder: &mut tar::Builder<W>,
     manifest: &ArctgzManifest,
+    file_entries: &[(String, PathBuf)],
 ) -> Result<(), ArctgzError> {
-    for (archive_path, data, _hash, size) in entries {
-        let mut header = tar::Header::new_gnu();
-        header
-            .set_path(archive_path)
-            .map_err(|e| ArctgzError::Io(std::io::Error::other(e)))?;
-        header.set_size(*size);
-        tar_builder.append_data(&mut header, archive_path, data.as_slice())?;
-    }
-
     let manifest_json = serde_json::to_string_pretty(manifest)?;
     let mut header = tar::Header::new_gnu();
     header
         .set_path("manifest.json")
         .map_err(|e| ArctgzError::Io(std::io::Error::other(e)))?;
     header.set_size(manifest_json.len() as u64);
-    tar_builder.append_data(&mut header, "manifest.json", manifest_json.as_bytes())?;
+    builder.append_data(&mut header, "manifest.json", manifest_json.as_bytes())?;
+
+    for (archive_path, fs_path) in file_entries {
+        let file = File::open(fs_path)?;
+        let metadata = file.metadata()?;
+        let size = metadata.len();
+
+        let mut header = tar::Header::new_gnu();
+        header
+            .set_path(archive_path)
+            .map_err(|e| ArctgzError::Io(std::io::Error::other(e)))?;
+        header.set_size(size);
+        let mut reader = BufReader::with_capacity(BUFFER_SIZE, file);
+        builder.append_data(&mut header, archive_path, &mut reader)?;
+    }
     Ok(())
 }
 
