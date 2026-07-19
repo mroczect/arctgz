@@ -38,6 +38,17 @@ pub fn verify(archive_path: &Path, public_key: Option<&[u8]>) -> Result<(), Arct
             .get(&path)
             .ok_or_else(|| ArctgzError::VerifyError(format!("File '{}' not in manifest", path)))?;
 
+        if expected.is_dir {
+            if entry.header().entry_type() != tar::EntryType::Directory {
+                return Err(ArctgzError::VerifyError(format!(
+                    "Expected directory but got file: {}",
+                    path
+                )));
+            }
+            files_found.insert(path);
+            continue;
+        }
+
         let mut hasher = Sha512::new();
         let mut size: u64 = 0;
         loop {

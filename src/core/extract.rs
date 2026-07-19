@@ -43,6 +43,13 @@ pub fn extract(
         })?;
 
         let dest = output_dir.join(&path);
+
+        if expected.is_dir {
+            fs::create_dir_all(&dest)?;
+            extracted_files.insert(path);
+            continue;
+        }
+
         if dest.exists() && !force {
             return Err(ArctgzError::Io(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
