@@ -3,6 +3,6 @@ pub mod types;
 
 pub use error::ArctgzError;
 pub use types::{
-    ArctgzConfig, ArctgzDelta, ArctgzManifest, ArctgzRecipe, Compression, DeltaOp, FileEntry,
-    RecipeStep,
+    ArctgzConfig, ArctgzDelta, ArctgzManifest, ArctgzRecipe, Compression, DeltaOp, Encryption,
+    FileEntry, RecipeStep,
 };
