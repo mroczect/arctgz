@@ -6,6 +6,8 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
+const IGNORE_PATHS: &[&str] = &["arctgz.init", "recipe.json"];
+
 pub fn diff(base_archive: &Path, target_archive: &Path) -> Result<ArctgzDelta, ArctgzError> {
     let (base_manifest, _) = crate::core::archive::read_manifest(base_archive)?;
     let (target_manifest, _) = crate::core::archive::read_manifest(target_archive)?;
@@ -17,6 +19,9 @@ pub fn diff(base_archive: &Path, target_archive: &Path) -> Result<ArctgzDelta, A
     let mut processed: HashSet<String> = HashSet::new();
 
     for (path, entry) in &target_manifest.files {
+        if IGNORE_PATHS.contains(&path.as_str()) {
+            continue;
+        }
         match base_manifest.files.get(path) {
             Some(base_entry) if base_entry.sha512 == entry.sha512 => {}
             Some(_) => {
@@ -38,9 +43,10 @@ pub fn diff(base_archive: &Path, target_archive: &Path) -> Result<ArctgzDelta, A
     }
 
     for path in base_manifest.files.keys() {
-        if !processed.contains(path.as_str()) {
-            ops.push(DeltaOp::Delete { path: path.clone() });
+        if IGNORE_PATHS.contains(&path.as_str()) || processed.contains(path.as_str()) {
+            continue;
         }
+        ops.push(DeltaOp::Delete { path: path.clone() });
     }
 
     Ok(ArctgzDelta {
@@ -56,6 +62,7 @@ pub fn diff(base_archive: &Path, target_archive: &Path) -> Result<ArctgzDelta, A
 
 pub fn patch(
     base_archive: &Path,
+    target_archive: &Path,   
     delta: &ArctgzDelta,
     output_path: &Path,
     private_key: Option<&[u8]>,
@@ -103,7 +110,17 @@ pub fn patch(
     }
 
     for (path, entry) in &base_manifest.files {
+        if IGNORE_PATHS.contains(&path.as_str()) {
+            continue;   
+        }
         if !delete_set.contains(path) && !modify_set.contains(path) {
+            new_files.insert(path.clone(), entry.clone());
+        }
+    }
+
+    let (target_manifest, _) = crate::core::archive::read_manifest(target_archive)?;
+    for (path, entry) in &target_manifest.files {
+        if IGNORE_PATHS.contains(&path.as_str()) {
             new_files.insert(path.clone(), entry.clone());
         }
     }
@@ -112,7 +129,7 @@ pub fn patch(
         name: delta.target_name.clone(),
         version: delta.target_version.clone(),
         created: chrono::Utc::now(),
-        compression: base_manifest.compression.clone(),
+        compression: target_manifest.compression.clone(),
         files: new_files,
         signature: None,
     };
@@ -126,6 +143,7 @@ pub fn patch(
         &new_manifest,
         &base_manifest,
         base_archive,
+        target_archive,   
         delta,
     )?;
 
@@ -144,6 +162,7 @@ fn write_patched_archive(
     new_manifest: &ArctgzManifest,
     base_manifest: &ArctgzManifest,
     base_archive: &Path,
+    target_archive: &Path,
     delta: &ArctgzDelta,
 ) -> Result<(), ArctgzError> {
     let mut delete_set: HashSet<String> = HashSet::new();
@@ -176,6 +195,7 @@ fn write_patched_archive(
                 new_manifest,
                 base_manifest,
                 base_archive,
+                target_archive,
                 &delete_set,
                 &modify_add_set,
             )?;
@@ -190,6 +210,7 @@ fn write_patched_archive(
                 new_manifest,
                 base_manifest,
                 base_archive,
+                target_archive,
                 &delete_set,
                 &modify_add_set,
             )?;
@@ -207,6 +228,7 @@ fn write_patched_tar<W: Write>(
     new_manifest: &ArctgzManifest,
     base_manifest: &ArctgzManifest,
     base_archive: &Path,
+    target_archive: &Path,
     delete_set: &HashSet<String>,
     modify_add_set: &HashSet<String>,
 ) -> Result<(), ArctgzError> {
@@ -219,11 +241,11 @@ fn write_patched_tar<W: Write>(
     builder.append_data(&mut header, "manifest.json", manifest_json.as_bytes())?;
 
     let file = File::open(base_archive)?;
-    let compression = &base_manifest.compression;
-    let decoder = crate::core::archive::make_reader_from_file(file, compression)?;
-    let mut base_archive_tar = tar::Archive::new(decoder);
+    let base_compression = &base_manifest.compression;
+    let decoder = crate::core::archive::make_reader_from_file(file, base_compression)?;
+    let mut base_tar = tar::Archive::new(decoder);
 
-    for entry in base_archive_tar.entries()? {
+    for entry in base_tar.entries()? {
         let mut entry = entry?;
         let path = entry.path()?.to_string_lossy().into_owned();
 
@@ -236,6 +258,35 @@ fn write_patched_tar<W: Write>(
         }
 
         let expected = base_manifest.files.get(&path).unwrap();
+        let mut data = Vec::new();
+        entry.read_to_end(&mut data)?;
+
+        let mut header = tar::Header::new_gnu();
+        header
+            .set_path(&path)
+            .map_err(|e| ArctgzError::Io(std::io::Error::other(e)))?;
+        header.set_size(expected.size);
+        builder.append_data(&mut header, &path, data.as_slice())?;
+    }
+
+    let file2 = File::open(target_archive)?;
+    let target_compression = &new_manifest.compression;
+    let decoder2 = crate::core::archive::make_reader_from_file(file2, target_compression)?;
+    let mut target_tar = tar::Archive::new(decoder2);
+
+    for entry in target_tar.entries()? {
+        let mut entry = entry?;
+        let path = entry.path()?.to_string_lossy().into_owned();
+
+        if !modify_add_set.contains(&path) && path != "manifest.json" {
+            continue;
+        }
+
+        if path == "manifest.json" {
+            continue;
+        }
+
+        let expected = new_manifest.files.get(&path).unwrap();
         let mut data = Vec::new();
         entry.read_to_end(&mut data)?;
 
