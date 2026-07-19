@@ -1,11 +1,11 @@
-.TH arctgz 7 "2026-07-19" "arctgz 0.5.0" "Miscellaneous Information Manual"
+.TH arctgz 7 "2026-07-19" "arctgz 0.6.0" "Miscellaneous Information Manual"
 .SH NAME
 arctgz \- safety-first project lifecycle library for the arctgz archive format
 .SH SYNOPSIS
 .nf
 \fBuse arctgz::{\fP
-\fB    init, load_config, save_config, compile, extract,\fP
-\fB    verify,\fP
+\fB    init, load_config, save_config,\fP
+\fB    compile, extract, verify,\fP
 \fB    load_recipe, extract_recipe, execute_recipe,\fP
 \fB    ArctgzConfig, ArctgzManifest, FileEntry,\fP
 \fB    ArctgzRecipe, RecipeStep, Compression, ArctgzError\fP
@@ -75,7 +75,7 @@ arctgz \- safety-first project lifecycle library for the arctgz archive format
 \fBenum ArctgzError { ... }\fP
 .fi
 .SH DESCRIPTION
-The arctgz library provides a safe, cross-platform API for the full lifecycle of an arctgz project: scaffolding, configuration, compilation into a compressed and integrity-verified archive, verified extraction, standalone integrity verification, and post-extraction recipe execution.
+The arctgz library provides a safe, cross-platform API for the full lifecycle of an arctgz project: scaffolding, configuration, compilation into a compressed and integrity-verified archive, verified extraction, standalone verification, and post-extraction recipe execution.
 .PP
 All operations enforce strict path confinement, validate metadata before touching the filesystem, and use atomic file operations to prevent corruption and TOCTOU (time-of-check to time-of-use) races.
 .PP
@@ -99,7 +99,7 @@ The library is fully tested on Linux, macOS, and Windows.
 This man page can be installed system-wide using the provided installer script:
 .PP
 .nf
-\fBcurl -fsSL https://raw.githubusercontent.com/mroczect/arctgz/master/install-manpage.sh | sudo bash\fP
+\fBcurl -fsSL https://raw.githubusercontent.com/mroczect/arctgz/master/install-manpage.sh | bash\fP
 .fi
 .PP
 The script places \fBarctgz.7\fP into \fB/usr/local/share/man/man7/\fP and updates the man database.
@@ -111,27 +111,101 @@ To uninstall, run:
 .SH FUNCTIONS
 .TP
 \fBinit\fP(\fIproject_path\fP, \fIforce\fP)
+.RS
 Initialises a new arctgz project at \fIproject_path\fP.
-Creates the directory, an \fBinclude/\fP subdirectory, and a default \fBarctgz.init\fP file.
-The default configuration includes \fB"compression": "gzip"\fP.
-See \fBArctgzConfig\fP for details.
 .PP
-Security checks are performed before any filesystem changes; a failed call leaves no side effects.
+Arguments:
+.RS
+.TP
+\fIproject_path\fP
+A reference to a \fBstd::path::Path\fP.
+The path must not be empty and must reside (after canonicalisation) under the current user's home directory.
+If the path does not exist, it will be created; otherwise it must be a directory.
+.TP
+\fIforce\fP
+If \fBtrue\fP, skip the non-empty directory check.
+However, an existing \fBarctgz.init\fP file will still cause an \fBAlreadyInitialized\fP error.
+.RE
+.PP
+Return value:
+.RS
+\fBOk(())\fP on success, or an \fBArctgzError\fP describing the failure.
+.RE
+.PP
+Side effects (only after all safety checks pass):
+.RS
+.IP \(bu 2
+Creates the project directory (and parents, if needed).
+.IP \(bu
+Creates the \fBinclude/\fP subdirectory.
+.IP \(bu
+Writes a default \fBarctgz.init\fP configuration file atomically (using \fBcreate_new(true)\fP).
+The default configuration includes \fB"compression": "gzip"\fP.
+.RE
+.PP
+Security checks (performed before any filesystem modification):
+.RS
+.IP \(bu 2
+Home directory confinement \(en the canonicalised project path must start with the canonicalised home directory.
+Symlink attacks are neutralised.
+.IP \(bu
+Path validity \(en rejects empty paths, and rejects existing files (as opposed to directories).
+.IP \(bu
+Directory emptiness (unless \fBforce\fP is \fBtrue\fP).
+.RE
+.RE
 .TP
 \fBload_config\fP(\fIproject_path\fP)
-Reads and validates \fBarctgz.init\fP.
+.RS
+Reads and validates the \fBarctgz.init\fP file from the given project directory.
+.PP
+Arguments:
+.RS
+.TP
+\fIproject_path\fP
+Path to the project root (must contain an \fBarctgz.init\fP file).
+.RE
+.PP
+Return value:
+.RS
+\fBOk(ArctgzConfig)\fP if the file exists, contains valid JSON, and passes \fBvalidate()\fP.
+On failure, returns an \fBArctgzError\fP variant (\fBConfigNotFound\fP, \fBConfigLoadError\fP, or \fBConfigValidation\fP).
+.RE
+.RE
 .TP
 \fBsave_config\fP(\fIproject_path\fP, \fIconfig\fP)
-Atomically writes a validated \fBArctgzConfig\fP back to disk (temp file + rename).
+.RS
+Writes a validated \fBArctgzConfig\fP back to the project's \fBarctgz.init\fP file atomically.
+The operation first writes the JSON to a temporary file (\fBarctgz.tmp\fP) and then renames it over the original.
+This prevents corruption if the process crashes mid-write.
+.PP
+Arguments:
+.RS
+.TP
+\fIproject_path\fP
+Path to the project root.
+.TP
+\fIconfig\fP
+An \fBArctgzConfig\fP instance to save.
+Must pass \fBvalidate()\fP before saving.
+.RE
+.PP
+Return value:
+.RS
+\fBOk(())\fP on success, or an \fBArctgzError\fP (\fBConfigValidation\fP, \fBConfigSaveError\fP, or \fBJson\fP).
+.RE
+.RE
 .TP
 \fBcompile\fP(\fIproject_path\fP, \fIoutput_dir\fP, \fIforce\fP)
+.RS
 Compiles the project into an \fB.artgz\fP archive.
 .PP
-Steps:
+The function:
 .IP \(bu 2
-Loads configuration via \fBload_config\fP().
+Loads the project configuration via \fBload_config\fP().
 .IP \(bu
-Collects \fBarctgz.init\fP, the \fBinclude/\fP files, and an optional \fBrecipe.json\fP (validated automatically).
+Collects the \fBarctgz.init\fP file and all files listed in the \fBinclude\fP array, recursively adding directories while rejecting symbolic links.
+An optional \fBrecipe.json\fP is also included if present.
 .IP \(bu
 Computes SHA-512 hashes for every file in parallel using \fBrayon\fP.
 .IP \(bu
@@ -139,27 +213,103 @@ Embeds an \fBArctgzManifest\fP as \fBmanifest.json\fP.
 .IP \(bu
 Compresses the tar stream with the configured algorithm (\fBCompression::Gzip\fP or \fBCompression::Zstd\fP).
 .IP \(bu
-Writes the archive atomically via a temporary file.
+Writes the archive atomically via a temporary file and rename.
 .PP
-Symlinks are rejected.  If a \fBrecipe.json\fP is present, it is validated and included; invalid recipes cause \fBRecipeInvalid\fP.
+Arguments:
+.RS
+.TP
+\fIproject_path\fP
+Path to the project root.
+.TP
+\fIoutput_dir\fP
+Optional output directory.
+If \fBNone\fP, the archive is placed in \fBproject_path/dist/\fP.
+.TP
+\fIforce\fP
+If \fBtrue\fP, overwrite an existing archive; otherwise fail if the archive already exists.
+.RE
+.PP
+Return value:
+.RS
+\fBOk(PathBuf)\fP containing the full path to the created archive, or an \fBArctgzError\fP (including \fBIncludeFileNotFound\fP, \fBSymlinkNotAllowed\fP, \fBRecipeInvalid\fP, or \fBIo\fP for an already-existing archive when \fBforce\fP is \fBfalse\fP).
+.RE
+.PP
+Safety:
+.RS
+.IP \(bu 2
+Symlinks are rejected to prevent reference leaks outside the project.
+.IP \(bu
+If a \fBrecipe.json\fP is present, it is validated before compilation; invalid recipes cause \fBRecipeInvalid\fP.
+.IP \(bu
+The entire archive is written atomically; a crash mid-write leaves no partial archive.
+.RE
+.RE
 .TP
 \fBextract\fP(\fIarchive_path\fP, \fIoutput_dir\fP, \fIforce\fP)
-Extracts an archive with full verification.
-Compression is detected automatically (gzip/zstd magic bytes).
-All files are hashed and checked against the manifest; any mismatch aborts with \fBChecksumMismatch\fP.
-Path traversal (absolute paths or \fB..\fP) is rejected.
-Existing files are overwritten only when \fBforce\fP is \fBtrue\fP.
+.RS
+Extracts a previously compiled arctgz archive with full integrity verification.
+Compression (gzip/zstd) is detected automatically.
+.PP
+The function:
+.IP \(bu 2
+Opens and decompresses the archive.
+.IP \(bu
+Reads the embedded \fBmanifest.json\fP and validates it.
+.IP \(bu
+Checks each file path using \fBis_safe_archive_path\fP (rejects absolute paths, \fB..\fP, empty strings, and \fB.\fP).
+.IP \(bu
+Verifies that all files in the manifest are present and vice versa.
+.IP \(bu
+Hashes each file and compares against the manifest; any mismatch aborts with \fBChecksumMismatch\fP and removes the partially written file.
+.IP \(bu
+Writes files to \fIoutput_dir\fP, creating subdirectories as needed, and refuses to overwrite existing files unless \fBforce\fP is \fBtrue\fP.
+.PP
+Arguments:
+.RS
+.TP
+\fIarchive_path\fP
+Path to the \fB.artgz\fP archive.
+.TP
+\fIoutput_dir\fP
+Destination directory; will be created if it does not exist.
+.TP
+\fIforce\fP
+If \fBtrue\fP, overwrite existing files; otherwise abort on conflict.
+.RE
+.PP
+Return value:
+.RS
+\fBOk(())\fP on success, or an \fBArctgzError\fP (\fBManifestNotFound\fP, \fBChecksumMismatch\fP, \fBExtractError\fP for unsafe paths, or \fBIo\fP for file conflicts).
+.RE
+.RE
 .TP
 \fBverify\fP(\fIarchive_path\fP)
-Standalone integrity check. Reads the archive, validates every file's hash and size against the manifest, ensures all manifest entries are present, and checks for unsafe paths.  No files are written.
+.RS
+Standalone integrity check.
+Reads the archive, validates every file's hash and size against the manifest, ensures all manifest entries are present, and checks for unsafe paths.
+No files are written.
+.PP
+Return value:
+.RS
+\fBOk(())\fP if the archive is valid, or an \fBArctgzError\fP (\fBManifestNotFound\fP, \fBChecksumMismatch\fP for hash or size mismatch, \fBVerifyError\fP for missing/extra files or unsafe paths).
+.RE
+.RE
 .TP
 \fBload_recipe\fP(\fIproject_path\fP)
-Loads and validates \fBrecipe.json\fP from a project directory. Returns \fBOk(None)\fP if the file is absent.
+.RS
+Loads and validates \fBrecipe.json\fP from a project directory.
+Returns \fBOk(None)\fP if the file does not exist.
+.RE
 .TP
 \fBextract_recipe\fP(\fIarchive_path\fP)
-Extracts and validates the embedded \fBrecipe.json\fP from an archive. Returns \fBRecipeNotFound\fP if missing.
+.RS
+Extracts and validates the embedded \fBrecipe.json\fP from an archive.
+Automatically detects compression format (gzip or zstd).
+Returns \fBRecipeNotFound\fP if the recipe is missing.
+.RE
 .TP
 \fBexecute_recipe\fP(\fIoutput_dir\fP, \fIrecipe\fP, \fIforce\fP)
+.RS
 Runs the steps of a recipe inside \fIoutput_dir\fP.
 Supported steps:
 .RS
@@ -171,14 +321,21 @@ Copy a file or directory.
 Create a directory.
 .TP
 \fBChmod { path, mode }\fP
-Set Unix permissions (octal string).  No-op on non-Unix platforms.
+Set Unix permissions (octal string).
+On non-Unix platforms this step returns \fBRecipeExecutionError\fP and halts execution.
 .TP
 \fBRemove { path }\fP
 Delete a file or directory.
 .RE
 .PP
-All recipe paths are validated; absolute paths, \fB..\fP, empty paths, or \fB.\fP are rejected.
+All recipe paths are validated: absolute paths, \fB..\fP, empty strings, and \fB.\fP are rejected.
 When \fBforce\fP is \fBfalse\fP, existing files or directories cause an error.
+.PP
+Return value:
+.RS
+\fBOk(())\fP on success, or an \fBArctgzError\fP (\fBRecipeInvalid\fP, \fBRecipeExecutionError\fP).
+.RE
+.RE
 .SH TYPES
 .TP
 \fBArctgzConfig\fP
@@ -195,9 +352,11 @@ Semantic version string.
 List of relative resource paths (max 100 entries, no \fB..\fP or absolute paths).
 .TP
 \fBcompression\fP
-Compression algorithm: \fB"gzip"\fP (default) or \fB"zstd"\fP.  Determines archive format.
+Compression algorithm: \fB"gzip"\fP (default) or \fB"zstd"\fP.
 .RE
 .PP
+The configuration file is JSON with \fB#[serde(deny_unknown_fields)]\fP; unknown keys cause a deserialisation error.
+.TP
 \fBArctgzManifest\fP
 Embedded in every archive as \fBmanifest.json\fP.
 .RS
@@ -214,7 +373,7 @@ Algorithm used for this archive.
 \fBfiles\fP
 \fBBTreeMap\fP from archive paths to \fBFileEntry\fP.
 .RE
-.PP
+.TP
 \fBFileEntry\fP
 Metadata for one file: \fBsize\fP (u64) and \fBsha512\fP hex string.
 .TP
@@ -236,7 +395,7 @@ Enum with \fBCopy\fP, \fBMkDir\fP, \fBChmod\fP, \fBRemove\fP.
 Enum: \fBGzip\fP (default), \fBZstd\fP.
 .TP
 \fBArctgzError\fP
-All failure variants, now including:
+All failure variants, including:
 .RS
 .TP
 \fBRecipeNotFound\fP
@@ -295,7 +454,9 @@ Verification failed (missing file, size mismatch, unsafe path, etc.).
 .SH FILES
 .TP
 \fBarctgz.init\fP
-Project configuration (JSON).  Now includes \fBcompression\fP field.
+Project configuration (JSON).
+The file is strictly validated; unknown fields cause an error.
+Written atomically by \fBinit\fP() and \fBsave_config\fP().
 .TP
 \fBinclude/\fP
 Resource directory.
@@ -307,38 +468,59 @@ Default archive output (gzip or zstd).
 Post-extraction recipe embedded into the archive.
 .SH ENVIRONMENT
 .TP
-\fBHOME\fP / \fBUSERPROFILE\fP
-Home directory for confinement checks (via \fBdirs\fP crate).
+\fBHOME\fP (Unix) / \fBUSERPROFILE\fP (Windows)
+The library obtains the current user's home directory through the \fBdirs\fP crate.
+On Unix, the \fBHOME\fP variable is used; on Windows, \fBUSERPROFILE\fP.
+If the appropriate variable is not set, a platform-specific fallback is attempted.
+If no home directory can be determined, \fBinit\fP() will fail with \fBPathNotAllowed\fP for any path (even relative ones) because confinement cannot be verified.
 .SH SECURITY
 .IP \(bu 2
-Home-directory confinement for \fBinit\fP.
+Path confinement: only paths inside the canonicalised home directory are allowed for initialisation.
+Symlink traversal is fully mitigated by canonicalising both the project path and the home directory.
 .IP \(bu
-No side effects before validation.
+No side effects before validation: \fBinit\fP() resolves the path and performs all security checks before creating any directories.
+Thus, even a failed call with a path outside the home directory will not leave unwanted directories on disk.
 .IP \(bu
-Atomic writes (config, archive).
+Atomic writes: the use of \fBcreate_new(true)\fP for \fBinit\fP(), and temp file + rename for \fBsave_config\fP() and \fBcompile\fP(), ensure the target file is never left in an incomplete state.
 .IP \(bu
-Archive integrity via SHA-512 manifest, verified on \fBextract\fP and \fBverify\fP.
+Archive integrity: every file in the archive is hashed with SHA-512.
+The manifest is embedded and verified during extraction and verification; any hash or size mismatch aborts with \fBChecksumMismatch\fP.
 .IP \(bu
-Path traversal prevention in both extraction and recipe paths.
+Path traversal prevention: \fBextract\fP() and \fBverify\fP() reject archive paths that are absolute, contain \fB..\fP, are empty, or equal \fB.\fP.
+The same validation applies to recipe paths.
 .IP \(bu
-Symlink rejection during compilation.
+Symlink rejection: \fBcompile\fP() refuses to include symbolic links, ensuring archives contain only regular files and directories.
 .IP \(bu
-Strict validation of all configuration and recipe inputs, including denial of unknown JSON fields.
+Input validation: configuration and recipe fields are strictly validated.
+Unknown JSON keys are rejected, preventing accidental or malicious settings from entering the project metadata.
+.SH NOTES
+The library is intended to be used as a building block for higher-level tools.
+It does not impose any locking mechanism; concurrent operations on the same project directory may lead to races.
+However, each individual write operation (config save, archive creation) is atomic, so partial corruption is avoided even under concurrent access.
+Users should serialise access when multiple processes or threads operate on the same project.
 .SH VERSION
-arctgz 0.5.0 \(en adds zstd compression, parallel hashing, post-extraction recipes, standalone verification, and a unified compression detection layer.
+arctgz 0.6.0 \(en introduces robust manifest reading via \fBread_manifest\fP, improved path safety checks (\fBis_safe_archive_path\fP), and corrects the behaviour of \fBChmod\fP on non-Unix platforms to return an error instead of silently doing nothing.
 .SH SEE ALSO
-\fBsemver\fP(7), \fBrealpath\fP(3), \fBserde_json\fP(5), \fBdirs\fP(7),
-\fBflate2\fP(7), \fBzstd\fP(1), \fBtar\fP(5), \fBsha2\fP(7), \fBrayon\fP(7)
+\fBsemver\fP(7),
+\fBrealpath\fP(3),
+\fBserde_json\fP(5),
+\fBdirs\fP(7),
+\fBflate2\fP(7),
+\fBzstd\fP(1),
+\fBtar\fP(5),
+\fBsha2\fP(7),
+\fBrayon\fP(7)
 .SH BUGS
 .IP \(bu 2
-The \fBinclude/\fP directory is always empty initially; files must be added manually.
+The \fBinclude/\fP directory is always created empty; files must be added manually before compilation.
 .IP \(bu
-Concurrent operations on the same project directory are not serialised.
+Concurrent operations on the same project directory are not serialised; while individual writes are atomic, the overall state may be inconsistent if multiple processes write simultaneously.
 .IP \(bu
 No cryptographic signatures yet; integrity relies solely on SHA-512 hashes.
 .IP \(bu
-\fBChmod\fP step is silently ignored on non-Unix platforms.
+The \fBChmod\fP step is not supported on non-Unix platforms and will return an error.
 .SH AUTHORS
 The arctgz developers.
 .SH LICENSE
 MIT.
+See the LICENSE file in the source distribution.
