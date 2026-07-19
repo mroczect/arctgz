@@ -23,6 +23,10 @@ pub fn verify_manifest(manifest: &ArctgzManifest, public_key: &[u8]) -> Result<(
     )
     .map_err(|e| ArctgzError::SignatureError(format!("Invalid public key: {}", e)))?;
 
+    if manifest.signature.is_none() {
+        return Err(ArctgzError::SignatureError("Archive is not signed".into()));
+    }
+
     let signature_bytes = hex::decode(manifest.signature.as_deref().unwrap_or(""))
         .map_err(|_| ArctgzError::SignatureError("Invalid hex in signature".into()))?;
 
