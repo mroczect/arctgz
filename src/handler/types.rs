@@ -26,9 +26,9 @@ impl Default for ArctgzConfig {
             version: "0.1.0".into(),
             include: vec![],
             compression: Compression::Gzip,
+            encryption: Encryption::None,
         }
     }
-    
 }
 
 impl ArctgzConfig {
