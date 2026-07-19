@@ -67,4 +67,7 @@ pub enum ArctgzError {
 
     #[error("Delta operation error: {0}")]
     DeltaError(String),
+
+    #[error("Encryption error: {0}")]
+    EncryptionError(String),
 }
