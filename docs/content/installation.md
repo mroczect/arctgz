@@ -15,12 +15,12 @@ Open your `Cargo.toml` file and add:
 
 ```toml
 [dependencies]
-arctgz = { git = "https://github.com/mroczect/arctgz.git", tag = "v0.8.1" }
+arctgz = { git = "https://github.com/mroczect/arctgz.git", tag = "v0.8.2" }
 ```
 
-Replace `"v0.8.1"` with the latest [Git tag](https://github.com/mroczect/arctgz/tags) if a newer version exists.
+Replace `"v0.8.2"` with the latest [Git tag](https://github.com/mroczect/arctgz/tags) if a newer version exists.
 
-> **Security tip:** always pin to a specific tag (like `v0.8.1`) rather than a branch. This protects your build from unexpected breaking changes.
+> **Security tip:** always pin to a specific tag (like `v0.8.2`) rather than a branch. This protects your build from unexpected breaking changes.
 
 ---
 
