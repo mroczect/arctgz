@@ -57,11 +57,6 @@ fn extract_zstd_checksum_mismatch() {
             let file = fs::File::create(&fake_archive).unwrap();
             let encoder = zstd::stream::Encoder::new(file, 0).unwrap();
             let mut tar = tar::Builder::new(encoder);
-            let mut header = tar::Header::new_gnu();
-            header.set_size(6);
-            header.set_path("file.bin").unwrap();
-            tar.append_data(&mut header, "file.bin", b"secret".as_ref())
-                .unwrap();
             let manifest = serde_json::json!({
                 "name": "test",
                 "version": "0.1.0",
@@ -75,6 +70,12 @@ fn extract_zstd_checksum_mismatch() {
             mheader.set_size(manifest_bytes.len() as u64);
             mheader.set_path("manifest.json").unwrap();
             tar.append_data(&mut mheader, "manifest.json", &manifest_bytes[..])
+                .unwrap();
+
+            let mut header = tar::Header::new_gnu();
+            header.set_size(6);
+            header.set_path("file.bin").unwrap();
+            tar.append_data(&mut header, "file.bin", b"secret".as_ref())
                 .unwrap();
             let encoder = tar.into_inner().unwrap();
             encoder.finish().unwrap();
