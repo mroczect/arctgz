@@ -104,6 +104,8 @@ pub struct ArctgzManifest {
 pub struct FileEntry {
     pub size: u64,
     pub sha512: String,
+    #[serde(default)]
+    pub is_dir: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -155,12 +157,16 @@ pub enum DeltaOp {
         path: String,
         size: u64,
         sha512: String,
+        #[serde(default)]
+        is_dir: bool,
     },
     #[serde(rename = "modify")]
     Modify {
         path: String,
         size: u64,
         sha512: String,
+        #[serde(default)]
+        is_dir: bool,
     },
     #[serde(rename = "delete")]
     Delete { path: String },
