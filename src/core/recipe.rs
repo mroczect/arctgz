@@ -1,6 +1,8 @@
 use crate::handler::{ArctgzError, ArctgzRecipe, RecipeStep};
 use std::fs;
+use std::fs::File;
 use std::io::Read;
+
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path};
@@ -15,12 +17,22 @@ pub fn load_recipe(project_path: &Path) -> Result<Option<ArctgzRecipe>, ArctgzEr
     validate_recipe(&recipe)?;
     Ok(Some(recipe))
 }
-
 pub fn extract_recipe(archive_path: &Path) -> Result<ArctgzRecipe, ArctgzError> {
-    let (_manifest, reader) = crate::core::archive::open_archive_file(archive_path)?;
-    let mut tar = tar::Archive::new(reader);
+    let (_, compression) = crate::core::archive::read_manifest(archive_path)?;
 
-    for entry in tar.entries()? {
+    let file = File::open(archive_path)?;
+    let decoder = crate::core::archive::make_reader_from_file(&file, &compression)?;
+    let mut archive = tar::Archive::new(decoder);
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        if entry.path()?.to_string_lossy() == "manifest.json" {
+            let mut buf = [0u8; 8192];
+            while entry.read(&mut buf)? > 0 {}
+            break;
+        }
+    }
+
+    for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?.to_string_lossy().into_owned();
         if path == "recipe.json" {
@@ -33,7 +45,6 @@ pub fn extract_recipe(archive_path: &Path) -> Result<ArctgzRecipe, ArctgzError> 
     }
     Err(ArctgzError::RecipeNotFound)
 }
-
 pub fn execute_recipe(
     output_dir: &Path,
     recipe: &ArctgzRecipe,
