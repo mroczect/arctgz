@@ -7,11 +7,9 @@ use rayon::prelude::*;
 use sha2::{Digest, Sha512};
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
-use std::io::{BufReader, Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
-
-const BUFFER_SIZE: usize = 64 * 1024;
 
 pub fn compile(
     project_path: &Path,
@@ -112,39 +110,29 @@ pub fn compile(
         }
     }
 
-    let metadata: Vec<(String, String, u64, bool)> = entries
+    let entries_data: Vec<(String, Vec<u8>, String, u64, bool)> = entries
         .par_iter()
         .map(|(rel, abs)| {
             let rel_str = rel.to_string_lossy().into_owned();
             if abs.is_dir() {
-                Ok::<_, ArctgzError>((rel_str, String::new(), 0u64, true))
+                Ok((rel_str, Vec::new(), String::new(), 0u64, true))
             } else {
-                let mut file = File::open(abs)?;
-                let mut hasher = Sha512::new();
-                let mut buf = [0u8; BUFFER_SIZE];
-                let mut size = 0u64;
-                loop {
-                    let n = file.read(&mut buf)?;
-                    if n == 0 {
-                        break;
-                    }
-                    hasher.update(&buf[..n]);
-                    size += n as u64;
-                }
-                let hash = hex::encode(hasher.finalize());
-                Ok((rel_str, hash, size, false))
+                let data = fs::read(abs)?;
+                let size = data.len() as u64;
+                let hash = hex::encode(Sha512::digest(&data));
+                Ok((rel_str, data, hash, size, false))
             }
         })
         .collect::<Result<Vec<_>, ArctgzError>>()?;
 
     let mut manifest_files = BTreeMap::new();
-    for (p, h, s, d) in metadata {
+    for (path, _data, hash, size, is_dir) in &entries_data {
         manifest_files.insert(
-            p,
+            path.clone(),
             FileEntry {
-                size: s,
-                sha512: h,
-                is_dir: d,
+                size: *size,
+                sha512: hash.clone(),
+                is_dir: *is_dir,
             },
         );
     }
@@ -169,14 +157,14 @@ pub fn compile(
             let encoder =
                 flate2::write::GzEncoder::new(archive_file, flate2::Compression::default());
             let mut builder = tar::Builder::new(encoder);
-            write_entries(&mut builder, &manifest, &entries)?;
+            write_entries_from_data(&mut builder, &manifest, &entries_data)?;
             let encoder = builder.into_inner()?;
             encoder.finish()?;
         }
         Compression::Zstd => {
             let encoder = zstd::stream::Encoder::new(archive_file, 0)?;
             let mut builder = tar::Builder::new(encoder);
-            write_entries(&mut builder, &manifest, &entries)?;
+            write_entries_from_data(&mut builder, &manifest, &entries_data)?;
             let encoder = builder.into_inner()?;
             encoder.finish()?;
         }
@@ -186,10 +174,10 @@ pub fn compile(
     Ok(output_path)
 }
 
-fn write_entries<W: Write>(
+fn write_entries_from_data<W: Write>(
     builder: &mut tar::Builder<W>,
     manifest: &ArctgzManifest,
-    entries: &[(PathBuf, PathBuf)],
+    entries_data: &[(String, Vec<u8>, String, u64, bool)],
 ) -> Result<(), ArctgzError> {
     let mjson = serde_json::to_string_pretty(manifest)?;
     let mut header = tar::Header::new_gnu();
@@ -199,26 +187,22 @@ fn write_entries<W: Write>(
     header.set_size(mjson.len() as u64);
     builder.append_data(&mut header, "manifest.json", mjson.as_bytes())?;
 
-    for (rel, abs) in entries {
-        let rel_str = rel.to_string_lossy().into_owned();
-        if abs.is_dir() {
+    for (rel_str, data, _hash, _size, is_dir) in entries_data {
+        if *is_dir {
             let mut header = tar::Header::new_gnu();
             header
-                .set_path(&rel_str)
+                .set_path(rel_str)
                 .map_err(|e| ArctgzError::Io(std::io::Error::other(e)))?;
             header.set_size(0);
             header.set_entry_type(tar::EntryType::Directory);
-            builder.append_data(&mut header, &rel_str, &[][..])?;
+            builder.append_data(&mut header, rel_str, &[][..])?;
         } else {
-            let file = File::open(abs)?;
-            let meta = file.metadata()?;
             let mut header = tar::Header::new_gnu();
             header
-                .set_path(&rel_str)
+                .set_path(rel_str)
                 .map_err(|e| ArctgzError::Io(std::io::Error::other(e)))?;
-            header.set_size(meta.len());
-            let mut reader = BufReader::with_capacity(BUFFER_SIZE, file);
-            builder.append_data(&mut header, &rel_str, &mut reader)?;
+            header.set_size(data.len() as u64);
+            builder.append_data(&mut header, rel_str, data.as_slice())?;
         }
     }
     Ok(())

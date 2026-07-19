@@ -19,10 +19,12 @@ zstd = { version = "0.13.3", features = ["zstdmt"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 walkdir = "2.5.0"
 glob = "0.3.3"
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
 
 [dev-dependencies]
 temp-env = "0.3.6"
 tempfile = "3.27.0"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
-rand = "0.8"

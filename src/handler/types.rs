@@ -11,6 +11,8 @@ pub struct ArctgzConfig {
     pub include: Vec<String>,
     #[serde(default = "default_compression")]
     pub compression: Compression,
+    #[serde(default)]
+    pub encryption: Encryption,
 }
 
 fn default_compression() -> Compression {
@@ -26,6 +28,7 @@ impl Default for ArctgzConfig {
             compression: Compression::Gzip,
         }
     }
+    
 }
 
 impl ArctgzConfig {
@@ -170,4 +173,12 @@ pub enum DeltaOp {
     },
     #[serde(rename = "delete")]
     Delete { path: String },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
+pub enum Encryption {
+    #[default]
+    None,
+    #[serde(rename = "aes256gcm")]
+    Aes256Gcm,
 }

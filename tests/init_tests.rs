@@ -78,13 +78,7 @@ fn init_outside_home_existing_errors() {
     let home = tmp.path().join("home");
     fs::create_dir(&home).unwrap();
 
-    let (env_key, env_val) = if cfg!(unix) {
-        ("HOME", home.to_str().unwrap())
-    } else {
-        ("USERPROFILE", home.to_str().unwrap())
-    };
-
-    temp_env::with_var(env_key, Some(env_val), || {
+    temp_env::with_var("HOME", Some(home.to_str().unwrap()), || {
         let res = init(&outside, false);
         assert!(matches!(res, Err(ArctgzError::PathNotAllowed(_))));
     });
@@ -98,13 +92,7 @@ fn init_outside_home_nonexistent_no_side_effect() {
     let home = tmp.path().join("home");
     fs::create_dir(&home).unwrap();
 
-    let (env_key, env_val) = if cfg!(unix) {
-        ("HOME", home.to_str().unwrap())
-    } else {
-        ("USERPROFILE", home.to_str().unwrap())
-    };
-
-    temp_env::with_var(env_key, Some(env_val), || {
+    temp_env::with_var("HOME", Some(home.to_str().unwrap()), || {
         let res = init(&outside_new, false);
         assert!(matches!(res, Err(ArctgzError::PathNotAllowed(_))));
         assert!(!outside_new.exists());
