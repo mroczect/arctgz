@@ -135,3 +135,33 @@ pub enum Compression {
     #[serde(rename = "zstd")]
     Zstd,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ArctgzDelta {
+    pub base_name: String,
+    pub base_version: String,
+    pub target_name: String,
+    pub target_version: String,
+    pub base_manifest_hash: String,
+    pub target_manifest_hash: String,
+    pub operations: Vec<DeltaOp>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "op")]
+pub enum DeltaOp {
+    #[serde(rename = "add")]
+    Add {
+        path: String,
+        size: u64,
+        sha512: String,
+    },
+    #[serde(rename = "modify")]
+    Modify {
+        path: String,
+        size: u64,
+        sha512: String,
+    },
+    #[serde(rename = "delete")]
+    Delete { path: String },
+}
