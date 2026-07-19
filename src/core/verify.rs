@@ -1,11 +1,36 @@
 use crate::handler::ArctgzError;
 use sha2::{Digest, Sha512};
 use std::collections::HashSet;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Read;
 use std::path::Path;
 
-pub fn verify(archive_path: &Path, public_key: Option<&[u8]>) -> Result<(), ArctgzError> {
+pub fn verify(
+    archive_path: &Path,
+    public_key: Option<&[u8]>,
+    password: Option<&str>,
+) -> Result<(), ArctgzError> {
+    let working_path;
+    let actual_path = if crate::core::encrypt::is_encrypted(archive_path)? {
+        let pw = password.ok_or_else(|| {
+            ArctgzError::EncryptionError("Password required for encrypted archive".into())
+        })?;
+        let tmp = archive_path.with_extension("dec");
+        crate::core::encrypt::decrypt_file(archive_path, &tmp, pw)?;
+        working_path = tmp;
+        &working_path
+    } else {
+        archive_path
+    };
+
+    let result = verify_inner(actual_path, public_key);
+    if actual_path != archive_path {
+        let _ = fs::remove_file(actual_path);
+    }
+    result
+}
+
+fn verify_inner(archive_path: &Path, public_key: Option<&[u8]>) -> Result<(), ArctgzError> {
     let (manifest, compression) = crate::core::archive::read_manifest(archive_path)?;
 
     if let Some(pk) = public_key {
