@@ -17,6 +17,7 @@ pub fn load_recipe(project_path: &Path) -> Result<Option<ArctgzRecipe>, ArctgzEr
     validate_recipe(&recipe)?;
     Ok(Some(recipe))
 }
+
 pub fn extract_recipe(archive_path: &Path) -> Result<ArctgzRecipe, ArctgzError> {
     let (_, compression) = crate::core::archive::read_manifest(archive_path)?;
 
@@ -46,6 +47,8 @@ pub fn extract_recipe(archive_path: &Path) -> Result<ArctgzRecipe, ArctgzError> 
     }
     Err(ArctgzError::RecipeNotFound)
 }
+
+#[allow(unused_variables)]
 pub fn execute_recipe(
     output_dir: &Path,
     recipe: &ArctgzRecipe,
