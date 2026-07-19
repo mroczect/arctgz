@@ -118,7 +118,7 @@ pub fn execute_recipe(
     Ok(())
 }
 
-fn validate_recipe(recipe: &ArctgzRecipe) -> Result<(), ArctgzError> {
+pub(crate) fn validate_recipe(recipe: &ArctgzRecipe) -> Result<(), ArctgzError> {
     for (i, step) in recipe.steps.iter().enumerate() {
         match step {
             RecipeStep::Copy { from, to } => {
