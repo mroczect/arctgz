@@ -3,6 +3,17 @@ name = "arctgz"
 version = "0.8.2"
 edition = "2024"
 
+authors = ["mroczect <mroczect@proton.me>"]
+description = "A next‑generation archive format built with Rust. Super robust, cross‑platform, and designed for speed and safety."
+license = "MIT"
+repository = "https://github.com/mroczect/arctgz"
+documentation = "https://docs.rs/arctgz"
+homepage = "https://github.com/mroczect/arctgz"
+readme = "README.md"
+keywords = ["archive", "tar", "gzip", "zstd", "encryption", "compression", "signature"]
+categories = ["compression", "cryptography", "filesystem"]
+exclude = ["/target", "/.git", "/.github", "/benches", "/examples", "/tests",]
+
 [dependencies]
 chrono = { version = "0.4.45", features = ["serde"] }
 dirs = "6.0.0"
